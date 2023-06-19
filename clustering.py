@@ -8,6 +8,19 @@ from scipy.optimize import minimize
 from sklearn.cluster import SpectralClustering
 
 def distance_from_pure_color(img, pure_colors):
+    """
+    Calculates the distance the img is from pure colors, eg for all pixels
+    find the neared pure color, square that distance, sum over all pixels,
+    norm by the number of pixels and the maximum possible distance and sqrt.
+    Dist should be [0, 1]
+
+    Args:
+        img (_type_): _description_
+        pure_colors (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     img = np.array(img)
     pure_colors = sorted(pure_colors)
     color_midpoints = [(pure_colors[i+1] + pure_colors[i]) / 2 
