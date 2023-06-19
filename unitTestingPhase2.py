@@ -103,6 +103,12 @@ def t_dPC_6():
     print(largest_possi_dist == .25**2)
     print(closest_colors)
     print()
+    
+    
+def t_dTV_1():
+    test_arr = np.array([[0, 1], [1, 0]])
+    print(clu.total_variation_norm(test_arr) == 1)
 
 if __name__ == "__main__":
-    t_dPC_5()
+    #t_dPC_5()
+    t_dTV_1()
