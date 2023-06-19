@@ -1,8 +1,11 @@
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import variables_names as my_vars
+import pathlib_variable_names as my_new_vars
 
+from pathlib import Path
 
 def openBaseHolo(holoNumber, proced=False, mask=False):
     '''
@@ -34,6 +37,33 @@ def heatMapImg(holoArray):
     plt.colorbar()
     plt.show()
 
+def openAllSynthData(n_clus, n_pts, disply=False):
+    clus_dict = dict()
+    for clus in range(n_clus):
+        clus_dict[clus] = [0]*n_pts
+        
+    print(clus_dict)
+    
+    my_dir = my_new_vars.synthDataPath
+    all_file_paths = list(Path(my_dir).iterdir())
+    for synth_data_path in all_file_paths:
+        with open(synth_data_path, 'rb') as handle:
+            data_pt = pickle.load(handle)
+        data_pt_name = str(synth_data_path.name)
+        data_pt_name_parts = data_pt_name.split('_')
+        data_pt_clus = int(data_pt_name_parts[1])
+        data_pt_item = int(data_pt_name_parts[3].strip('.pickle'))
+        clus_list = clus_dict[data_pt_clus]
+        clus_list[data_pt_item] = data_pt
+        clus_dict[data_pt_clus] = clus_list
+        
+    if disply:
+        for clus, items in clus_dict.items():
+            for item in items:
+                heatMapImg(item)
+        
+    return clus_dict
+
 def holoExample(holoNumber = '00001'):
     holoData = openBaseHolo(holoNumber)
     holoViz1 = heatMapImg(holoData)
@@ -59,36 +89,4 @@ def parseDataTable(dataTablePath=my_vars.dataTablePath):
 
 
 if __name__ == "__main__":
-    #holoExample('01901')
-    #adjMatR = openAdjMatrix(adjMatrixFolder, downTo=2000)
-    #heatMapImg(adjMatR) #WILL CRASH if Not using DownTo, 30k x 30k pixels ~ 100Bil Pixels to image.
-    #print(adjMatR[0])
-    h = openBaseHolo(holoNumber='00001', proced=True)
-    #heatMapImg(h)
-    #parseDataTable()
-
-    mask_path = "C:\\Users\\evana\\Documents\\Thesis\\Provided\\SMALL_SAMPLE\\Hologram_Masks"
-    maskFullPath = mask_path + '\\holo_mask_%s.bin' % "00001"
-    print(maskFullPath)
-    dim_1 = 43
-    dim_2 = 43
-    with open(maskFullPath, mode='rb') as file:
-        holo = file.read()
-
-    holoArray = np.frombuffer(holo, dtype="float64")
-    holoArray.resize((dim_2, dim_1))
-
-    '''
-    mask_path = "C:\\Users\\evana\\Documents\\Thesis\\Provided\\SMALL_SAMPLE\\Hologram_Masks"
-    maskFullPath = mask_path + '\\holo_mask_%s.bin' % "00010"
-    print(maskFullPath)
-    dim_1 = 43
-    dim_2 = 43
-    with open(maskFullPath, mode='rb') as file:
-        holo = file.read()
-
-    #holoArray2 = np.frombuffer(holo, dtype="float64")
-    #holoArray2.resize((dim_2, dim_1))
-    #print(m)
-    '''
-    heatMapImg(holoArray)
+    openAllSynthData(n_clus=3, n_pts=3, disply=True)

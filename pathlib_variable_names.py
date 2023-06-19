@@ -3,6 +3,7 @@ from pathlib import Path
 
 small_sample_paths = ["Provided", "SMALL_SAMPLE"]
 full_sample_paths = ["Provided", "FULL_SAMPLE"]
+python_paths = ["Created", "mastersThesisPython"]
 
 p = pathlib.Path(__file__)
 print()
@@ -16,8 +17,18 @@ corePath = pathlib.Path(*core)
 smallSampPath = core + small_sample_paths
 smallSampPath = pathlib.Path(*smallSampPath)
 
-fullSampPath = core + small_sample_paths
+fullSampPath = core + full_sample_paths
 fullSampPath = pathlib.Path(*fullSampPath)
+
+pythonPath = core + python_paths
+pythonPath = pathlib.Path(*pythonPath)
+
+'''
+Paths for Python Stuff, such as Synthetic Data
+'''
+
+synthDataPath = str(pythonPath.joinpath(   "syntheticData" ) )
+
 
 '''
 Paths for the SMALL sample folders
