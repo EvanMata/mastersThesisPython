@@ -1,9 +1,10 @@
 import pathlib
 from pathlib import Path
 
-small_sample_paths = ["Provided", "SMALL_SAMPLE"]
+zenodo_paths = ["zenodoFiles"]
+small_sample_paths = ["SMALL_SAMPLE"]
 full_sample_paths = ["Provided", "FULL_SAMPLE"]
-python_paths = ["Created", "mastersThesisPython"]
+synth_data_paths = ["Evan", "Python_Code", "Synthetic_Clusters"]
 
 p = pathlib.Path(__file__)
 print()
@@ -14,20 +15,20 @@ print()
 core = list( p.parts[:-3] )
 corePath = pathlib.Path(*core)
 
-smallSampPath = core + small_sample_paths
+core2 = list( p.parts[:-2] )
+corePath2 = pathlib.Path(*core2)
+
+smallSampPath = core2 + small_sample_paths
 smallSampPath = pathlib.Path(*smallSampPath)
 
 fullSampPath = core + full_sample_paths
 fullSampPath = pathlib.Path(*fullSampPath)
 
-pythonPath = core + python_paths
-pythonPath = pathlib.Path(*pythonPath)
+generatedDataPath = core + synth_data_paths
+generatedDataPath = pathlib.Path(*generatedDataPath)
 
-'''
-Paths for Python Stuff, such as Synthetic Data
-'''
-
-synthDataPath = str(pythonPath.joinpath(   "syntheticData" ) )
+zenodoPath = core2 + zenodo_paths
+zenodoPath = pathlib.Path(*zenodoPath)
 
 
 '''
@@ -35,30 +36,68 @@ Paths for the SMALL sample folders
 '''
 
 centroidsFolderS = str(smallSampPath.joinpath(   "Cluster_Centroids" ) )
-holosFolderS = str(smallSampPath.joinpath(       "Raw_Holograms" ) )
 adjMatrixFolderS = str(smallSampPath.joinpath(   "Clustering_Analysis" ) )
-procedHolosFolderS = str(smallSampPath.joinpath( "Fully_Processed_Holograms" ) )
-masksFolderS = str(smallSampPath.joinpath(       "Hologram_Masks") )
-
 dataTablePathS = str(smallSampPath.joinpath(     "Log_Data_Coherent_Correlation_Imaging.txt" ) )
 
-rawHoloNameS = str(smallSampPath.joinpath(    "Raw_Hologram_%s.bin" ) )
-procedHoloNameS = str(smallSampPath.joinpath( "preprocessed_Holo_%s.bin" ) )
-maskNameS = str(smallSampPath.joinpath(       "holo_mask_%s.bin" ) )
+procedHolosFolderS = smallSampPath.joinpath( "Fully_Processed_Holograms" )
+procedHoloNameS = procedHolosFolderS.joinpath(( "preprocessed_Holo_%s.bin" ))
+procedHolosFolderS = str( procedHolosFolderS )
+procedHoloNameS = str( procedHoloNameS )
 
+masksFolderS = smallSampPath.joinpath("Hologram_Masks")
+maskNameS = masksFolderS.joinpath("holo_mask_%s.bin")
+masksFolderS = str( masksFolderS )
+maskNameS = str( maskNameS )
+
+holosFolderS = smallSampPath.joinpath("Raw_Holograms")
+rawHoloNameS = holosFolderS.joinpath("Raw_Hologram_%s.bin")
+holosFolderS = str(holosFolderS)
+rawHoloNameS = str(rawHoloNameS)
 
 '''
 Paths for the FULL sample folders
 '''
 
 centroidsFolderF = str(fullSampPath.joinpath(   "Cluster_Centroids" ) )
-holosFolderF = str(fullSampPath.joinpath(       "Raw_Holograms" ) )
 adjMatrixFolderF = str(fullSampPath.joinpath(   "Clustering_Analysis" ) )
-procedHolosFolderF = str(fullSampPath.joinpath( "Fully_Processed_Holograms" ) )
-masksFolderF = str(fullSampPath.joinpath(       "Hologram_Masks") )
-
 dataTablePathF = str(fullSampPath.joinpath(     "Log_Data_Coherent_Correlation_Imaging.txt" ) )
 
-rawHoloNameF = str(fullSampPath.joinpath(    "Raw_Hologram_%s.bin" ) )
-procedHoloNameF = str(fullSampPath.joinpath( "preprocessed_Holo_%s.bin" ) )
-maskNameF = str(fullSampPath.joinpath(       "holo_mask_%s.bin" ) )
+procedHolosFolderF = fullSampPath.joinpath( "Fully_Processed_Holograms" )
+procedHoloNameF = procedHolosFolderF.joinpath(( "preprocessed_Holo_%s.bin" ))
+procedHolosFolderF = str( procedHolosFolderF )
+procedHoloNameF = str( procedHoloNameF )
+
+masksFolderF = fullSampPath.joinpath("Hologram_Masks")
+maskNameF = masksFolderF.joinpath("holo_mask_%s.bin")
+masksFolderF = str( masksFolderF )
+maskNameF = str( maskNameF )
+
+holosFolderF = fullSampPath.joinpath("Raw_Holograms")
+rawHoloNameF = holosFolderF.joinpath("Raw_Hologram_%s.bin")
+holosFolderF = str(holosFolderF)
+rawHoloNameF = str(rawHoloNameF)
+
+'''
+Paths for Zenodo Files
+'''
+
+centroidsFolderZ = str(zenodoPath.joinpath(   "Cluster_Centroids" ) )
+adjMatrixFolderZ = str(zenodoPath.joinpath(   "Clustering_Analysis" ) )
+dataTablePathZ = str(zenodoPath.joinpath(     "Log_Data_Coherent_Correlation_Imaging.txt" ) )
+modesPathZ = zenodoPath.joinpath("Coherent_Diffraction_Imaging")
+modesPathZ = str(modesPathZ.joinpath("Input_Holograms"))
+
+procedHolosFolderZ = zenodoPath.joinpath( "Fully_Processed_Holograms" )
+procedHoloNameZ = procedHolosFolderZ.joinpath(( "preprocessed_Holo_%s.bin" ))
+procedHolosFolderZ = str( procedHolosFolderZ )
+procedHoloNameZ = str( procedHoloNameZ )
+
+masksFolderZ = zenodoPath.joinpath("Hologram_Masks")
+maskNameZ = masksFolderZ.joinpath("holo_mask_%s.bin")
+masksFolderZ = str( masksFolderZ )
+maskNameZ = str( maskNameZ )
+
+holosFolderZ = zenodoPath.joinpath("Raw_Holograms")
+rawHoloNameZ = holosFolderZ.joinpath("Raw_Hologram_%s.bin")
+holosFolderZ = str(holosFolderZ)
+rawHoloNameZ = str(rawHoloNameZ)

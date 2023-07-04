@@ -71,8 +71,10 @@ def openAdjMatrix(f=False, reduce=True, downTo=1000):
     print("Correlation Matrix Opened!")
     return adjMat
 
-def parseDataTable(f=False):
-    if f:
+def parseDataTable(pathtype='z'):
+    if pathtype.lower().strip() == 'z':
+        dataTablePath = my_vars.dataTablePathZ
+    elif pathtype.lower().strip() == 'f':
         dataTablePath = my_vars.dataTablePathF
     else:
         dataTablePath = my_vars.dataTablePathS

@@ -1,8 +1,11 @@
-import numpy as np
+import os
 
+import numpy as np
 import clustering as clu
 import openRawData as opn
 import pathlib_variable_names as var_names
+
+from pathlib import Path
 
 
 def t_dPC_1():
@@ -109,6 +112,40 @@ def t_dTV_1():
     test_arr = np.array([[0, 1], [1, 0]])
     print(clu.total_variation_norm(test_arr) == 1)
 
+
+def t_mode_is_avg(using_helicity=True):
+    """
+    Check whether the avg of all the holos in mode 1-1 is actually 
+    the positive holo of any of the modes
+
+    3 folders w. 1 img per holo: base/raw holos, Diff Holos Flattened, Diff Holos Ref Filtered
+
+    Can compare avged or summed vs mode item, can compare avg of raw, holo flatted, holo ref filtered 
+    can compare vs pos holo og, neg holo og, pos holo calc, neg holo calc, or diff holo
+    """
+    if using_helicity:
+        mode_0_names = opn.grab_mode_items(use_helicty=True)
+    else:
+        mode_0_names = opn.grab_mode_items(use_helicty=False)
+
+    num_holos = 0
+    base_arr = np.zeros((972, 960))
+    raw_path = var_names.rawHoloNameS
+    for holo_name in mode_0_names:
+        holoNumber = holo_name.strip(".bin")
+        holo_arr = opn.openBaseHolo(holoNumber, pathtype='s', proced=False, mask=False)
+        base_arr += holo_arr
+        num_holos += 1
+
+    #avged_holo_arr = holo_arr / num_holos
+    
+    for pos_holo in opn.yield_mode_pieces():
+        print("DIFF: ", np.sum(pos_holo - base_arr))
+        #print(np.max(pos_holo))
+
+    print(np.max(base_arr))
+
 if __name__ == "__main__":
     #t_dPC_5()
-    t_dTV_1()
+    #t_dTV_1()
+    t_mode_is_avg(using_helicity=False)
