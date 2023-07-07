@@ -334,6 +334,13 @@ def how_often_correct(samples=100):
     print( num_cor / samples )
 
 
+def big_clusters(n_cs=2, numPts=100):
+    """
+    Creates two clusters each with many datapoints and then sees how long the convex combination takes.
+    """
+    names_and_data = dg.genClusters(numClusters=n_cs, arraysPerCluster=numPts, n1=100, n2=100,
+                                        noiseLv=0.25, display=False, saveClusters=False)
+
 def single_cluster(n_clusters, imgs):
     total_metric_value, lambdas_dict = clustering_objective(gamma, imgs, metric, n_clusters)
 
