@@ -406,11 +406,18 @@ def how_often_correct(samples=100):
     print( num_cor / samples )
 
 
-def single_cluster(n_clusters, imgs):
-    total_metric_value, lambdas_dict = clustering_objective(gamma, imgs, metric, n_clusters)
-
-
 def generate_stats(n_cs=5, arraysPerCluster=5, num_samples=100):
+    """
+    Generate plots of how my metric changes over a sample as the number of clusters changes 
+    from 1 to the maximum possible, and how along the same scale the number of approximately 
+    0 lambda values change as well.
+
+    Args:
+        n_cs (int, optional): Number of clusters. Defaults to 5.
+        arraysPerCluster (int, optional): Number of pts per cluster. Defaults to 5.
+        num_samples (int, optional): Number of times to redo the experiment 
+                                        to generate statistics. Defaults to 100.
+    """
     all_metric_vals = []
     zero_lambdas_vals = []
     for i in range(num_samples):
@@ -446,7 +453,7 @@ def generate_stats(n_cs=5, arraysPerCluster=5, num_samples=100):
     plt.show()
 
 
-def convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=100):
+def convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=100, display_clusts=False):
     """
     How long does it take to do larger convex combinations?
     """
@@ -463,10 +470,26 @@ def convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=100):
     e = time.time()
     msg = """Given %d clusters and %d points per cluster, 
             time taken (s) for convex combo: """%(num_clus, np_pts_per_clus)
-    print(msg, e - s)
-    centroids = create_centroids(clus_info, data)
-    for centroid_num, centroid in centroids.items():
-        opn.heatMapImg(centroid)
+    time_taken = e - s
+    print(msg, time_taken)
+    if display_clusts:
+        centroids = create_centroids(clus_info, data)
+        for centroid_num, centroid in centroids.items():
+            opn.heatMapImg(centroid)
+    return time_taken
+
+
+def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200]):
+    all_times = []
+    for np_pts_per_clus in num_pts_to_test:
+        tot_time_taken = convex_combo_lots_of_pts(num_clus, np_pts_per_clus, display_clusts=False)
+        time_taken = tot_time_taken / num_clus
+        all_times.append(time_taken)
+    plt.plot(num_pts_to_test, all_times)
+    plt.ylabel("Time Taken (s)")
+    plt.xlabel("Number of Pts per cluster")
+    plt.title("Time Scaling of Convex Combination")
+    plt.show()
 
 if __name__ == "__main__":
     # affinityMatrix(images, gamma=0.1)
@@ -474,5 +497,8 @@ if __name__ == "__main__":
     #basic_ex(use_new_data=True, n_cs=5)
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
-    convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=1000)
+    #convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=1000)
+    
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100])
+    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
 
