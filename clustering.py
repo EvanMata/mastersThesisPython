@@ -1,8 +1,10 @@
 import time
+import pickle
 
 import numpy as np
 import matplotlib.pyplot as plt
 
+from scipy.special import softmax
 from scipy.optimize import minimize
 from sklearn.cluster import SpectralClustering
 
@@ -129,6 +131,19 @@ def convexComboMetricEval1Cluster(convexComboParams, realSpaceImgs, metric=custo
     return clusterMetric
 
 
+def convComboMetricEval1ClusterUnconstrained(convexComboParams, realSpaceImgs, metric=customMetric):
+    # Should use some args/kwargs stuff here.
+    """
+    Given a list of images and their corresponding lambdas representing some
+    convex combination of them, evaluate the provided metric on them
+    """
+    convexComboParams = softmax(np.array(convexComboParams))
+    convArrays = [convexComboParams[i]*realSpaceImgs[i] for i in range(len(realSpaceImgs))]
+    imageToEval = sum(convArrays)
+    clusterMetric = metric(imageToEval)
+    return clusterMetric
+
+
 def scaledTotalVariation(image): #May adjust to punish steps?
     # Calculate the scaled total variation ( scaled to 0-1 )
     scaledImg = (image - np.min(image)) / (np.max(image) - np.min(image))
@@ -194,7 +209,7 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
     return distOverall
 
 
-def convexMinimization(params, metric=convexComboMetricEval1Cluster):
+def convexMinimization(params, metric=convexComboMetricEval1Cluster, solver='SLSQP'):
     """
     clusterImages is the usual parameters we're using to form a convex combination,
     we're then evaluating the convex combo of the images via the metric,
@@ -212,6 +227,86 @@ def convexMinimization(params, metric=convexComboMetricEval1Cluster):
                             bounds=bnds, constraints=cons)
 
     return finalLambdas
+
+
+def convexMinimization2(params, metric=convComboMetricEval1ClusterUnconstrained, solver='SLSQP'):
+    """
+    clusterImages is the usual parameters we're using to form a ~convex combination,
+    we're then evaluating the convex combo of the images via the metric,
+        which must be better when its smaller.
+    The metric is only fully defined when it has the params. 
+    
+    In this situation, instead of doing an explicit constrained convex minimization,
+    we're doing an unconstrained minimization by using softmax to get rid 
+    of our bounds and constraints (softmax will keep them each between 0-1 and ensure
+    they sum to 1)
+    
+    """
+    # Prior where everything's equally weighted
+    initialLambdaGuesses = np.ones(len(params)) / len(params)
+    arguments = params
+
+    finalLambdas = minimize(metric, initialLambdaGuesses,
+                            method=solver, args=arguments)
+    #finalLambdas = softmax(finalLambdas) 
+    # #My returned ~lambdas are the unconstrained items - but convex combo is not that
+    finalLambdas['x'] = softmax(finalLambdas['x'])
+    return finalLambdas
+
+
+def convexMinimization3(params, metric=convComboMetricEval1ClusterUnconstrained, solver='SLSQP'):
+    """
+    clusterImages is the usual parameters we're using to form a ~convex combination,
+    we're then evaluating the convex combo of the images via the metric,
+        which must be better when its smaller.
+    The metric is only fully defined when it has the params. 
+    
+    In this situation, instead of doing a convex combination over all points, we 
+    split our points into a spanning disjoint union of sets, convex combo each set of points
+    then convex combo the ~centroids of each set
+    
+    """
+    sub_centroids_list = []
+    subsets_info = dict()
+    num_subsets = int(np.sqrt(len(params)))
+    partitioned_sets = partition_sets(params, num_subsets)
+    for i in range(len(partitioned_sets)):
+        partial_set = partitioned_sets[i]
+        setInfo = convexMinimization2(partial_set, metric, solver)
+        setLambdas = softmax(setInfo['x'])
+        subset_centroid = sum(np.array([lmd*partial_set[j] for j, lmd in enumerate(setLambdas)]))
+        subsets_info[i] = (subset_centroid, setLambdas)
+        sub_centroids_list.append(subset_centroid)
+        
+    # Prior where everything's equally weighted
+    initialLambdaGuesses = np.ones(len(partitioned_sets)) / len(partitioned_sets)
+    arguments = sub_centroids_list
+
+    subcentroid_Lambdas = minimize(metric, initialLambdaGuesses,
+                            method=solver, args=arguments)
+    
+    subcentroid_Lambdas['x'] = softmax(subcentroid_Lambdas['x'])
+    true_lambdas = []
+    #Multiply out the subset centroid lambda by all the lambda's used to make up the subset centroid
+    for i in range(len(subcentroid_Lambdas['x'])):
+        centroid_lmd = subcentroid_Lambdas['x'][i]
+        centroid_pieces_lmds = subsets_info[i][1]
+        individual_lmds = [centroid_lmd*individual_lmd for individual_lmd in centroid_pieces_lmds]
+        true_lambdas += individual_lmds
+        
+    true_lambdas = np.array(true_lambdas)
+    true_metric_val = metric(true_lambdas, params) 
+    #METRIC VALUE, ie default 'fun' IS NOT CORRECT
+    #Its the metric value for the clustering of subclusters, not all the individual pieces.
+    #So Eval the correct one and plug it in as true_metric_val
+    all_info = {'x': true_lambdas, 'fun': true_metric_val} 
+    return all_info
+
+
+def partition_sets(a, n):
+    # Split list a into n non-overlapping parts
+    k, m = divmod(len(a), n)
+    return [a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
 
 
 def con(lambdas): # Trivial convex combination constraint
@@ -259,36 +354,55 @@ def get_opt_convex_combo(images, alpha0=0.1, n_clusters0=2):
         total_metric_value += min_metric_value
 
 
-def clustering_objective(gamma, images, metric, n_clusters, img_names, print_it=False):
+def clustering_objective(gamma, images, metric, n_clusters, img_names, \
+        print_it=False, clustering_case='unconstrained', solver="SLSQP"):
     """
     Calculates the total metric value after convex minimization
     for a fixed gamma and number of clusters, and the convex combination
     params in terms of the items in the cluster
     """
+    t_s = time.time() #total
+    a_s = time.time() #affininty
     affinities = affinityMatrix(images, gamma)
+    a_e = time.time()
+    c_s = time.time() #clustering
     clusters = performClustering(affinities, n_clusters)
+    c_e = time.time()
     if print_it:
         print(clusters)
     all_cluster_labels = set(clusters)
     total_metric_value = 0
     lambdas_dict = dict()
+    o_s = time.time() #optimization
     for cluster_label in all_cluster_labels:
         relevant_image_indices = [i for i, x in enumerate(clusters) if x == cluster_label]
         relevant_images = np.array(images)[relevant_image_indices]
         relevant_clus_names = np.array(img_names)[relevant_image_indices]
-        convexCombo = convexMinimization(relevant_images, metric)
+        if clustering_case == 'constrained':
+            convexCombo = convexMinimization(relevant_images, metric, solver)
+        elif clustering_case == 'unconstrained':
+            convexCombo = convexMinimization2(relevant_images, metric, solver)
+        elif clustering_case == 'unconstrained_stack':
+            convexCombo = convexMinimization3(relevant_images, metric, solver)
+        else:
+            convexCombo = convexMinimization3(relevant_images, metric, solver)
         min_metric_value = convexCombo['fun']
         clus_lambdas = convexCombo['x']
         frac = len(relevant_images) / len(images)
         total_metric_value += min_metric_value*frac
         lambdas_and_indices = list(zip(clus_lambdas, relevant_image_indices))
         lambdas_dict[cluster_label] = lambdas_and_indices
-
+    o_e = time.time()
+    t_e = time.time()
+    print("Total Time: %f, Affininty Time: %f, Clustering Time: %f, Optimization_time: %f"%
+          (t_e - t_s, a_e - a_s, c_e - c_s, o_e - o_s))
+    
     return total_metric_value, lambdas_dict
 
 
-def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, 
-             save_centroids=False, print_it=False, graph_it=True, display_clusts=True):
+def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=False, 
+             print_it=False, graph_it=True, display_clusts=True, 
+             clustering_case='unconstrained_stack'):
     """
     Identifies and prints lambdas and cluster indices for each
     possible number of clusters.
@@ -315,7 +429,7 @@ def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3,
     for num_clusters in range(len(data)):
         metric, clus_info = clustering_objective(
             gamma=0.01, images=data, metric=convexComboMetricEval1Cluster,
-            n_clusters=num_clusters + 1, img_names=names)
+            n_clusters=num_clusters + 1, img_names=names, clustering_case=clustering_case)
         num_approx_zero_lambdas_current_clus = extract_num_non_zero_lambdas(clus_info)
         centroids = create_centroids(clus_info, data)
         if display_clusts:
@@ -453,20 +567,25 @@ def generate_stats(n_cs=5, arraysPerCluster=5, num_samples=100):
     plt.show()
 
 
-def convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=100, display_clusts=False):
+def convex_combo_lots_of_pts(data, names, num_clus=2, np_pts_per_clus=100, 
+                             display_clusts=False, solver="SLSQP",
+                             clustering_case='unconstrained'): #num_clus=2, np_pts_per_clus=100
     """
     How long does it take to do larger convex combinations?
     """
+    
+    '''
     names_and_data = dg.gen_fake_data(num_clus=num_clus, 
                                 np_pts_per_clus=np_pts_per_clus, 
                                 display_imgs=False, 
                                 save_files=False)
     data = [i[1] for i in names_and_data]
     names = [i[0] for i in names_and_data]
+    '''
     s = time.time()
     metric, clus_info = clustering_objective(
             gamma=0.01, images=data, metric=convexComboMetricEval1Cluster,
-            n_clusters=num_clus, img_names=names)
+            n_clusters=num_clus, img_names=names, solver=solver, clustering_case=clustering_case)
     e = time.time()
     msg = """Given %d clusters and %d points per cluster, 
             time taken (s) for convex combo: """%(num_clus, np_pts_per_clus)
@@ -479,26 +598,140 @@ def convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=100, display_clusts=Fal
     return time_taken
 
 
-def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200]):
-    all_times = []
-    for np_pts_per_clus in num_pts_to_test:
-        tot_time_taken = convex_combo_lots_of_pts(num_clus, np_pts_per_clus, display_clusts=False)
-        time_taken = tot_time_taken / num_clus
-        all_times.append(time_taken)
-    plt.plot(num_pts_to_test, all_times)
+def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200], 
+                              clustering_case='unconstrained'):
+    solvers = ["Nelder-Mead", "Powell", "CG", "BFGS", \
+            "L-BFGS-B", "TNC", 'COBYLA', "SLSQP", "trust-constr"] 
+    #"trust-krylov", "trust-exact", "Newton-CG", "dogleg", "trust-ncg"
+    # ^ All Error out: Jacobian is required for Newton-CG method error
+    
+    data_set = []
+    name_sets = []
+    for num_pts in num_pts_to_test:
+        names_and_data = dg.gen_fake_data(num_clus=num_clus, 
+                                np_pts_per_clus=num_pts, 
+                                display_imgs=False, 
+                                save_files=False)
+        data = [i[1] for i in names_and_data]
+        names = [i[0] for i in names_and_data]
+        data_set.append(data)
+        name_sets.append(names)
+    
+    pts_dict = {}
+    for solver in solvers:
+        print(solver)
+        current_times = []
+        for i in range(len(num_pts_to_test)):
+            np_pts_per_clus = num_pts_to_test[i]
+            data = data_set[i]
+            names = name_sets[i]
+            tot_time_taken = convex_combo_lots_of_pts(\
+                data, names, num_clus=num_clus, 
+                np_pts_per_clus=np_pts_per_clus,
+                solver=solver, display_clusts=False, 
+                clustering_case=clustering_case)
+            time_taken = tot_time_taken / num_clus
+            current_times.append(time_taken)
+        pts_dict['solver'] = current_times
+        plt.plot(num_pts_to_test, current_times, label=solver)
     plt.ylabel("Time Taken (s)")
     plt.xlabel("Number of Pts per cluster")
     plt.title("Time Scaling of Convex Combination")
-    plt.show()
+    plt.legend()
+    plt_name = clustering_case + "_time_taken_lambdas_opti"
+    
+    with open(plt_name+"_data.pickle", 'wb') as handle:
+        pickle.dump(pts_dict, handle)
+    
+    plt_name += ".png"
+    plt.savefig(plt_name)
 
+
+def gen_plot_from_saved(pickle_name, num_pts_to_test):
+    with open(pickle_name, 'rb') as handle:
+        pts_dict = pickle.load(handle)
+    for solver, current_times in pts_dict.items():
+        plt.plot(num_pts_to_test, current_times, label=solver)
+    plt.ylabel("Time Taken (s)")
+    plt.xlabel("Number of Pts per cluster")
+    plt.title("Time Scaling of Convex Combination")
+    plt.legend()
+    plt.show()
+        
+
+def compare_dpcs(num_clus=2, np_pts_per_clus=2):
+    """Shows that its super quick to calculate the distance from a pure color for either method 
+    ~order .00009 for t1 and .00014 for t2; t1 better but not my main time waster.
+
+    Args:
+        num_clus (int, optional): _description_. Defaults to 2.
+        np_pts_per_clus (int, optional): _description_. Defaults to 2.
+    """
+    names_and_data = dg.gen_fake_data(num_clus=num_clus, 
+                                np_pts_per_clus=np_pts_per_clus, 
+                                display_imgs=False, 
+                                save_files=False)
+    data = [i[1] for i in names_and_data]
+    names = [i[0] for i in names_and_data]
+    s1 = time.time()
+    for img in data:
+        normed_dist_pc, closest_colors, largest_possi_dist = distance_from_pure_color(img, pure_colors=[0, 1])
+    e1 = time.time()
+    s2 = time.time()
+    for img in data:
+        distOverall = distFromPureColor(img, pureColors=[0, 1], printIt=False)
+    e2 = time.time()
+    t1 = e1 - s1
+    t2 = e2 - s2
+    num_pts = num_clus*np_pts_per_clus
+    print("Amount of time for t1: %f and t2: %f"%(t1, t2))
+    print("Avg time per pt: %f for t1 and %f for t2"%(t1/num_pts, t2/num_pts))
+     
+     
+def compare_tv(num_clus=2, np_pts_per_clus=2):
+    """Shows that its quick to calculate the total variation for either method
+    method 1 is significantly better (multiple orders of magnitude) than method 2
+    but both are still quite quick
+
+    Args:
+        num_clus (int, optional): _description_. Defaults to 2.
+        np_pts_per_clus (int, optional): _description_. Defaults to 2.
+    """
+    names_and_data = dg.gen_fake_data(num_clus=num_clus, 
+                                np_pts_per_clus=np_pts_per_clus, 
+                                display_imgs=False, 
+                                save_files=False)
+    data = [i[1] for i in names_and_data]
+    names = [i[0] for i in names_and_data]
+    s1 = time.time()
+    for img in data:
+        scaledTV = scaledTotalVariation(img)
+    e1 = time.time()
+    s2 = time.time()
+    for img in data:
+        tv_dist = total_variation_norm(img)
+    e2 = time.time()
+    t1 = e1 - s1
+    t2 = e2 - s2
+    num_pts = num_clus*np_pts_per_clus
+    print("Amount of time for t1: %f and t2: %f"%(t1, t2))
+    print("Avg time per pt: %f for t1 and %f for t2"%(t1/num_pts, t2/num_pts))   
+        
 if __name__ == "__main__":
     # affinityMatrix(images, gamma=0.1)
     # basic_ex()
     #basic_ex(use_new_data=True, n_cs=5)
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
-    #convex_combo_lots_of_pts(num_clus=2, np_pts_per_clus=1000)
     
-    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100])
-    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
+    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+                              clustering_case='unconstrained_stack')
+    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+                              clustering_case='unconstrained')
+    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+                              clustering_case='constrained')
+    #pickle_name = 'unconstrained_stack'+"_time_taken_lambdas_opti"+"_data.pickle"
+    #gen_plot_from_saved(pickle_name, num_pts_to_test=[10,15,20])
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
+    #compare_tv(num_clus=2, np_pts_per_clus=1000)
 
