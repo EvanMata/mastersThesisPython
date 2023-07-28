@@ -1,4 +1,5 @@
 import os
+import sys
 
 import numpy as np
 import clustering as clu
@@ -6,6 +7,9 @@ import openRawData as opn
 import pathlib_variable_names as var_names
 
 from pathlib import Path
+
+#sys.path.append('./python_provided_code/')
+#from fth_reconstruction import reconstructCDI as my_fft
 
 
 def t_dPC_1():

@@ -632,7 +632,7 @@ def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200],
                 clustering_case=clustering_case)
             time_taken = tot_time_taken / num_clus
             current_times.append(time_taken)
-        pts_dict['solver'] = current_times
+        pts_dict[solver] = current_times
         plt.plot(num_pts_to_test, current_times, label=solver)
     plt.ylabel("Time Taken (s)")
     plt.xlabel("Number of Pts per cluster")
@@ -650,7 +650,10 @@ def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200],
 def gen_plot_from_saved(pickle_name, num_pts_to_test):
     with open(pickle_name, 'rb') as handle:
         pts_dict = pickle.load(handle)
+        
+    print(pts_dict)
     for solver, current_times in pts_dict.items():
+        #current_times = [c if c < 10000 else 10000 for c in current_times ]
         plt.plot(num_pts_to_test, current_times, label=solver)
     plt.ylabel("Time Taken (s)")
     plt.xlabel("Number of Pts per cluster")
@@ -724,14 +727,14 @@ if __name__ == "__main__":
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
     
-    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-                              clustering_case='unconstrained_stack')
-    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-                              clustering_case='unconstrained')
-    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-                              clustering_case='constrained')
-    #pickle_name = 'unconstrained_stack'+"_time_taken_lambdas_opti"+"_data.pickle"
-    #gen_plot_from_saved(pickle_name, num_pts_to_test=[10,15,20])
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+    #                          clustering_case='unconstrained_stack')
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+    #                          clustering_case='unconstrained')
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+    #                          clustering_case='constrained')
+    pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
+    gen_plot_from_saved(pickle_name, num_pts_to_test=[50,60,70,80,90,100])
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
     #compare_tv(num_clus=2, np_pts_per_clus=1000)
 
