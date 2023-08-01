@@ -159,10 +159,6 @@ def scaledTotalVariation(scaledImg): #May adjust to punish steps?
     return scaledTV
 
 
-def distFromPureColor2(image, pureColors=[0, 1], printIt=False):
-    a=5
-
-
 def rounder(values):
     def f(x):
         idx = jnp.argmin(jnp.abs(values - x))
@@ -273,6 +269,7 @@ def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUncons
     they sum to 1)
     
     """
+    mini_d = dict()
     # Prior where everything's equally weighted
     initialLambdaGuesses = np.ones(len(params)) / len(params)
     arguments = [params, metric]
@@ -280,10 +277,11 @@ def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUncons
 
     finalLambdas = min2(eval_criterion, initialLambdaGuesses,
                             method=solver, args=arguments)
-    #finalLambdas = softmax(finalLambdas) 
     # #My returned ~lambdas are the unconstrained items - but convex combo is not that
-    finalLambdas['x'] = softmax(finalLambdas['x'])
-    return finalLambdas
+    constrained_convex_combo_params = softmax(finalLambdas.x)
+    mini_d['x'] = constrained_convex_combo_params
+    mini_d['fun'] = finalLambdas.fun
+    return mini_d
 
 
 def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
@@ -306,7 +304,7 @@ def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUncons
     for i in range(len(partitioned_sets)):
         partial_set = partitioned_sets[i]
         setInfo = convexMinimization2(partial_set, eval_criterion, solver)
-        setLambdas = softmax(setInfo['x'])
+        setLambdas = setInfo['x']
         subset_centroid = sum(np.array([lmd*partial_set[j] for j, lmd in enumerate(setLambdas)]))
         subsets_info[i] = (subset_centroid, setLambdas)
         sub_centroids_list.append(subset_centroid)
@@ -315,10 +313,10 @@ def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUncons
     initialLambdaGuesses = np.ones(len(partitioned_sets)) / len(partitioned_sets)
     arguments = sub_centroids_list
 
-    subcentroid_Lambdas = minimize(eval_criterion, initialLambdaGuesses,
+    subcentroid_Lambdas = min2(eval_criterion, initialLambdaGuesses,
                             method=solver, args=arguments)
-    
-    subcentroid_Lambdas['x'] = softmax(subcentroid_Lambdas['x'])
+    subcentroid_Lambdas_d = dict()
+    subcentroid_Lambdas_d['x'] = softmax(subcentroid_Lambdas.x)
     true_lambdas = []
     #Multiply out the subset centroid lambda by all the lambda's used to make up the subset centroid
     for i in range(len(subcentroid_Lambdas['x'])):
@@ -608,6 +606,7 @@ def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200],
     solvers = ["Nelder-Mead", "Powell", "CG", "BFGS", \
             "L-BFGS-B", "TNC", 'COBYLA', "SLSQP", "trust-constr"] 
     solvers = ['COBYLA', "SLSQP"]
+    solvers = ["BFGS"]
     #"trust-krylov", "trust-exact", "Newton-CG", "dogleg", "trust-ncg"
     # ^ All Error out: Jacobian is required for Newton-CG method error
     
@@ -729,16 +728,15 @@ def compare_tv(num_clus=2, np_pts_per_clus=2):
         
 if __name__ == "__main__":
     # affinityMatrix(images, gamma=0.1)
-    basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=16, graph_it=False, display_clusts=False,
-             clustering_case='unconstrained', only1=True, solver='BFGS')
+    #basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=16, graph_it=False, display_clusts=False,
+    #         clustering_case='unconstrained', only1=True, solver='BFGS')
     #basic_ex(use_new_data=True, n_cs=5)
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
-    
-    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[750,1000,1500],
-                              clustering_case='unconstrained_stack')
-    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-    #                          clustering_case='unconstrained')
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[750,1000,1500],
+    #                          clustering_case='unconstrained_stack')
+    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+                              clustering_case='unconstrained')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='constrained')
     #pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
