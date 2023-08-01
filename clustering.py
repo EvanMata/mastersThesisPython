@@ -602,6 +602,7 @@ def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200],
                               clustering_case='unconstrained'):
     solvers = ["Nelder-Mead", "Powell", "CG", "BFGS", \
             "L-BFGS-B", "TNC", 'COBYLA', "SLSQP", "trust-constr"] 
+    solvers = ['COBYLA', "SLSQP"] 
     #"trust-krylov", "trust-exact", "Newton-CG", "dogleg", "trust-ncg"
     # ^ All Error out: Jacobian is required for Newton-CG method error
     
@@ -727,14 +728,14 @@ if __name__ == "__main__":
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
     
-    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-    #                          clustering_case='unconstrained_stack')
+    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[750,1000,1500],
+                              clustering_case='unconstrained_stack')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='unconstrained')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='constrained')
-    pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
-    gen_plot_from_saved(pickle_name, num_pts_to_test=[50,60,70,80,90,100])
+    #pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
+    #gen_plot_from_saved(pickle_name, num_pts_to_test=[750,1000,1500])
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
     #compare_tv(num_clus=2, np_pts_per_clus=1000)
 

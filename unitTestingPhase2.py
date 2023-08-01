@@ -8,8 +8,8 @@ import pathlib_variable_names as var_names
 
 from pathlib import Path
 
-#sys.path.append('./python_provided_code/')
-#from fth_reconstruction import reconstructCDI as my_fft
+sys.path.append('./python_provided_code/')
+from fth_reconstruction import reconstructCDI as my_fft
 
 
 def t_dPC_1():
@@ -117,7 +117,7 @@ def t_dTV_1():
     print(clu.total_variation_norm(test_arr) == 1)
 
 
-def t_mode_is_avg(using_helicity=True):
+def t_mode_is_avg(using_helicity=True, print_it=True, my_mode=' 1-1'):
     """
     Check whether the avg of all the holos in mode 1-1 is actually 
     the positive holo of any of the modes
@@ -128,9 +128,9 @@ def t_mode_is_avg(using_helicity=True):
     can compare vs pos holo og, neg holo og, pos holo calc, neg holo calc, or diff holo
     """
     if using_helicity:
-        mode_0_names = opn.grab_mode_items(use_helicty=True)
+        mode_0_names = opn.grab_mode_items(my_mode=my_mode, use_helicty=True)
     else:
-        mode_0_names = opn.grab_mode_items(use_helicty=False)
+        mode_0_names = opn.grab_mode_items(my_mode=my_mode, use_helicty=False)
 
     num_holos = 0
     base_arr = np.zeros((972, 960))
@@ -141,15 +141,27 @@ def t_mode_is_avg(using_helicity=True):
         base_arr += holo_arr
         num_holos += 1
 
-    #avged_holo_arr = holo_arr / num_holos
-    
-    for pos_holo in opn.yield_mode_pieces():
-        print("DIFF: ", np.sum(pos_holo - base_arr))
-        #print(np.max(pos_holo))
+    if print_it:
+        differences = []
+        for pos_holo in opn.yield_mode_pieces():
+            sum_holo_diff = np.abs(np.sum(pos_holo - base_arr))
+            print("DIFF: ", "{:e}".format(sum_holo_diff))
+            differences.append(np.abs(sum_holo_diff))
+        #print("MAX Val in constructed array: ", "{:e}".format(np.max(base_arr)))
+        print("Minimum Difference: ", "{:e}".format(min(differences)))
 
-    print(np.max(base_arr))
+    avged_holo_arr = holo_arr / num_holos
+    return avged_holo_arr
+
+
+def visualize_fft(my_mode=' 1-1', using_helicity=True):
+    avg_holo_arr = t_mode_is_avg(my_mode=my_mode, using_helicity=using_helicity, print_it=False)
+    real_sp_maybe = my_fft(avg_holo_arr)
+    opn.heatMapImg(real_sp_maybe)
+
 
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
-    t_mode_is_avg(using_helicity=False)
+    t_mode_is_avg(using_helicity=True, print_it=True)
+    #visualize_fft()
