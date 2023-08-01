@@ -45,11 +45,13 @@ def openBaseHolo(holoNumber, pathtype='z', proced=False, mask=False):
     holoArray.resize((dim_2, dim_1))
     return holoArray
 
+
 def heatMapImg(holoArray):
     plt.imshow(holoArray, cmap='hot', interpolation='none')
     plt.colorbar()
     plt.show()
     return plt
+
 
 def openAllSynthData(n_clus, n_pts, disply=False):
     clus_dict = dict()
@@ -78,9 +80,11 @@ def openAllSynthData(n_clus, n_pts, disply=False):
         
     return clus_dict
 
+
 def holoExample(holoNumber = '00001'):
     holoData = openBaseHolo(holoNumber)
     holoViz1 = heatMapImg(holoData)
+
 
 def openAdjMatrix(adjMatrixFolder, reduce=True, downTo=1000):
     adjMatrixPath = adjMatrixFolder + "\\Correlation_Map.bin"
@@ -95,6 +99,7 @@ def openAdjMatrix(adjMatrixFolder, reduce=True, downTo=1000):
         adjMat = adjMat[:downTo, :downTo]
     print("Correlation Matrix Opened!")
     return adjMat
+
 
 def parseDataTable(pathtype='z'):
     if pathtype.lower().strip() == 'z':
@@ -138,6 +143,7 @@ def yield_mode_pieces():
         mode_pos_holo = np.fromfile(str(filename))
         mode_pos_holo.resize((972, 960))
         yield mode_pos_holo
+
 
 if __name__ == "__main__":
     #openAllSynthData(n_clus=3, n_pts=3, disply=True)

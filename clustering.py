@@ -2,11 +2,18 @@ import time
 import pickle
 
 import numpy as np
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from scipy.special import softmax
-from scipy.optimize import minimize
+
+
 from sklearn.cluster import SpectralClustering
+
+#from scipy.special import softmax
+from jax.nn import softmax
+from scipy.optimize import minimize
+from jax.scipy.optimize import minimize as min2
+
 
 import openRawData as opn
 import genSyntheticData as dg
@@ -113,7 +120,7 @@ def customMetric(image, lambdaVal=0.5):  # rename closest_sq_dist_tv_mix
     A convex combination of total variation and square distance from the closest domain/pureColor
     sTV >> dPC most of the time in the trivial example tested
     """
-    scaledImg = (image - np.min(image)) / (np.max(image) - np.min(image))
+    scaledImg = (image - jnp.min(image)) / (jnp.max(image) - jnp.min(image))
     sTV = scaledTotalVariation(scaledImg)
     dPC = distFromPureColor(scaledImg, pureColors=[0, 1])
     return lambdaVal*sTV + (1 - lambdaVal)*dPC
@@ -137,20 +144,30 @@ def convComboMetricEval1ClusterUnconstrained(convexComboParams, realSpaceImgs, m
     Given a list of images and their corresponding lambdas representing some
     convex combination of them, evaluate the provided metric on them
     """
-    convexComboParams = softmax(np.array(convexComboParams))
+    convexComboParams = softmax(jnp.array(convexComboParams))
     convArrays = [convexComboParams[i]*realSpaceImgs[i] for i in range(len(realSpaceImgs))]
     imageToEval = sum(convArrays)
     clusterMetric = metric(imageToEval)
     return clusterMetric
 
 
-def scaledTotalVariation(image): #May adjust to punish steps?
+def scaledTotalVariation(scaledImg): #May adjust to punish steps?
     # Calculate the scaled total variation ( scaled to 0-1 )
-    scaledImg = (image - np.min(image)) / (np.max(image) - np.min(image))
-    diffX = np.abs(np.diff(scaledImg, axis=1))
-    diffY = np.abs(np.diff(scaledImg, axis=0))
-    scaledTV = (np.sum(diffX) / diffX.size) + (np.sum(diffY) / diffY.size)
+    diffX = jnp.abs(jnp.diff(scaledImg, axis=1))
+    diffY = jnp.abs(jnp.diff(scaledImg, axis=0))
+    scaledTV = (jnp.sum(diffX) / diffX.size) + (jnp.sum(diffY) / diffY.size)
     return scaledTV
+
+
+def distFromPureColor2(image, pureColors=[0, 1], printIt=False):
+    a=5
+
+
+def rounder(values):
+    def f(x):
+        idx = jnp.argmin(jnp.abs(values - x))
+        return values[idx]
+    return jnp.frompyfunc(f, 1, 1)
 
 
 def distFromPureColor(image, pureColors=[0, 1], printIt=False):
@@ -160,12 +177,12 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
     then take the distance from that pure color squared. Finally, normalize by
     the worst possible value to be [0,1] range
     """
-    closestColors = np.zeros(image.shape)
+    closestColors = jnp.zeros(image.shape)
     pureColors = sorted(pureColors)
-    colorMidpoints = [np.mean([pureColors[i], pureColors[i+1]]) for i in
+    colorMidpoints = [jnp.mean(jnp.array([pureColors[i], pureColors[i+1]])) for i in
                       range(len(pureColors) - 1)]
-    previouslyUnseen = np.ones(image.shape)
-    justSeen = np.ones(image.shape)
+    previouslyUnseen = jnp.ones(image.shape)
+    justSeen = jnp.ones(image.shape)
 
     if printIt:
         print("Color Midpoints: ", colorMidpoints)
@@ -173,11 +190,20 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
 
     for i in range(len(colorMidpoints)):
         colorMidpoint = colorMidpoints[i]
-        previouslyUnseen[image < colorMidpoint] = 0
+        
+        #previouslyUnseen[image < colorMidpoint] = 0
+        #previouslyUnseen = previouslyUnseen.at[image < colorMidpoint].set(0)
+        previouslyUnseen = jnp.where(image < colorMidpoint, 0, 1)
+        
+        #previouslyUnseen[image < colorMidpoint] = 0
         # closestColors[image < colorMidpoint] = pureColors[i]
-        newInfo = justSeen - previouslyUnseen
-        currentColorArr = np.ones(image.shape) * pureColors[i]
-        closestColors = np.where(newInfo >= 1, currentColorArr, closestColors)
+        
+        # Could try to get set of indices and subtract it from set of indices in justSeen
+        # But just a where clause to get indices breaks too.
+        
+        newInfo = justSeen - previouslyUnseen #Just seen is 1's
+        currentColorArr = jnp.ones(image.shape) * pureColors[i]
+        closestColors = jnp.where(newInfo >= 1, currentColorArr, closestColors)
 
         if printIt:
             print("Current Midpoint: ", colorMidpoint)
@@ -185,10 +211,14 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
             print("New Points: \n", newInfo)
             print("Updated Closest Colors: \n", closestColors)
 
-        justSeen = np.copy(previouslyUnseen)
+        justSeen = jnp.copy(previouslyUnseen)
         if i == len(colorMidpoints) - 1:
-            closestColors[image >= colorMidpoint] = pureColors[i+1]
-            previouslyUnseen[image >= colorMidpoint] = 0
+            #closestColors = closestColors.at[image >= colorMidpoint].set(pureColors[i+1])
+            closestColors = jnp.where(image >= colorMidpoint, pureColors[i+1], closestColors)
+            #closestColors[image >= colorMidpoint] = pureColors[i+1]
+            #previouslyUnseen[image >= colorMidpoint] = 0
+            #previouslyUnseen = previouslyUnseen.at[image >= colorMidpoint].set(0)
+            previouslyUnseen = jnp.where(image < colorMidpoint, 0, 1)
             # ^Not necessary, aside from sanity check
 
             if printIt:
@@ -196,25 +226,25 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
                 print("Final Unseen: \n", previouslyUnseen)
                 print("Final New Points: \n", justSeen - previouslyUnseen)
 
-    distFromClosests = np.abs(image - closestColors)**2
-    distOverallReduced = np.sum(distFromClosests) / image.size
+    distFromClosests = jnp.abs(image - closestColors)**2
+    distOverallReduced = jnp.sum(distFromClosests) / image.size
 
     biggestPossibleGapInfo = [pureColors[0]] + colorMidpoints + [pureColors[-1]]
-    allGaps = [biggestPossibleGapInfo[i+1] - biggestPossibleGapInfo[i] for i in
-                      range(len(biggestPossibleGapInfo) - 1)]
-    largestPossiGap = max(allGaps)
+    allGaps = jnp.array([biggestPossibleGapInfo[i+1] - biggestPossibleGapInfo[i] for i in
+                      range(len(biggestPossibleGapInfo) - 1)])
+    largestPossiGap = jnp.max(allGaps)
     normFactor = largestPossiGap**2
     distOverall = distOverallReduced / normFactor
 
     return distOverall
 
 
-def convexMinimization(params, metric=convexComboMetricEval1Cluster, solver='SLSQP'):
+def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, solver='SLSQP'):
     """
     clusterImages is the usual parameters we're using to form a convex combination,
-    we're then evaluating the convex combo of the images via the metric,
+    we're then evaluating the convex combo of the images via the eval_criterion,
         which must be better when its smaller.
-    The metric is only fully defined when it has the params
+    The eval_criterion is only fully defined when it has the params
     """
     # Prior where everything's equally weighted
     initialLambdaGuesses = np.ones(len(params)) / len(params)
@@ -222,19 +252,20 @@ def convexMinimization(params, metric=convexComboMetricEval1Cluster, solver='SLS
     bnds = [(0, 1)]*len(params)  # Each lambda is between 0 and 1
     arguments = params
 
-    finalLambdas = minimize(metric, initialLambdaGuesses,
+    finalLambdas = minimize(eval_criterion, initialLambdaGuesses,
                             method='SLSQP', args=arguments,
                             bounds=bnds, constraints=cons)
 
     return finalLambdas
 
 
-def convexMinimization2(params, metric=convComboMetricEval1ClusterUnconstrained, solver='SLSQP'):
+def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
+                        solver='SLSQP', metric=customMetric):
     """
     clusterImages is the usual parameters we're using to form a ~convex combination,
-    we're then evaluating the convex combo of the images via the metric,
+    we're then evaluating the convex combo of the images via the eval_criterion,
         which must be better when its smaller.
-    The metric is only fully defined when it has the params. 
+    The eval_criterion is only fully defined when it has the params. 
     
     In this situation, instead of doing an explicit constrained convex minimization,
     we're doing an unconstrained minimization by using softmax to get rid 
@@ -244,9 +275,10 @@ def convexMinimization2(params, metric=convComboMetricEval1ClusterUnconstrained,
     """
     # Prior where everything's equally weighted
     initialLambdaGuesses = np.ones(len(params)) / len(params)
-    arguments = params
+    arguments = [params, metric]
+    arguments = tuple(arguments)
 
-    finalLambdas = minimize(metric, initialLambdaGuesses,
+    finalLambdas = min2(eval_criterion, initialLambdaGuesses,
                             method=solver, args=arguments)
     #finalLambdas = softmax(finalLambdas) 
     # #My returned ~lambdas are the unconstrained items - but convex combo is not that
@@ -254,7 +286,8 @@ def convexMinimization2(params, metric=convComboMetricEval1ClusterUnconstrained,
     return finalLambdas
 
 
-def convexMinimization3(params, metric=convComboMetricEval1ClusterUnconstrained, solver='SLSQP'):
+def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
+                        solver='SLSQP'):
     """
     clusterImages is the usual parameters we're using to form a ~convex combination,
     we're then evaluating the convex combo of the images via the metric,
@@ -272,7 +305,7 @@ def convexMinimization3(params, metric=convComboMetricEval1ClusterUnconstrained,
     partitioned_sets = partition_sets(params, num_subsets)
     for i in range(len(partitioned_sets)):
         partial_set = partitioned_sets[i]
-        setInfo = convexMinimization2(partial_set, metric, solver)
+        setInfo = convexMinimization2(partial_set, eval_criterion, solver)
         setLambdas = softmax(setInfo['x'])
         subset_centroid = sum(np.array([lmd*partial_set[j] for j, lmd in enumerate(setLambdas)]))
         subsets_info[i] = (subset_centroid, setLambdas)
@@ -282,7 +315,7 @@ def convexMinimization3(params, metric=convComboMetricEval1ClusterUnconstrained,
     initialLambdaGuesses = np.ones(len(partitioned_sets)) / len(partitioned_sets)
     arguments = sub_centroids_list
 
-    subcentroid_Lambdas = minimize(metric, initialLambdaGuesses,
+    subcentroid_Lambdas = minimize(eval_criterion, initialLambdaGuesses,
                             method=solver, args=arguments)
     
     subcentroid_Lambdas['x'] = softmax(subcentroid_Lambdas['x'])
@@ -295,8 +328,8 @@ def convexMinimization3(params, metric=convComboMetricEval1ClusterUnconstrained,
         true_lambdas += individual_lmds
         
     true_lambdas = np.array(true_lambdas)
-    true_metric_val = metric(true_lambdas, params) 
-    #METRIC VALUE, ie default 'fun' IS NOT CORRECT
+    true_metric_val = eval_criterion(true_lambdas, params) 
+    #eval_criterion, ie default 'fun' IS NOT CORRECT
     #Its the metric value for the clustering of subclusters, not all the individual pieces.
     #So Eval the correct one and plug it in as true_metric_val
     all_info = {'x': true_lambdas, 'fun': true_metric_val} 
@@ -313,48 +346,7 @@ def con(lambdas): # Trivial convex combination constraint
     return np.sum(lambdas) - 1
 
 
-def get_opt_convex_combo(images, alpha0=0.1, n_clusters0=2):
-    """
-    Finds the convex combination parameters which minimize my metric for the
-    given alpha parameterizing my affinity matrix construction, and the given
-    number of clusters, and returns the metric score for the combination
-
-    Adjust: Need to have subsets while not hitting criterian
-            Need to have differentiation/equiv w. respect to alpha
-            Need to somehow change number of clusters
-                (Could run on a given number of clusters, optimize for given
-                 number of clusters, adjust, then do descent with respect to number
-                 of clusters vs min value after alpha's been tuned)
-
-    Q: How do find nice cluster guesses for n_clusters based on affinity matrix?
-            How does one turn affinity matrix into spectral decomp? Just SVD and look
-            for anomously large jumps in singular values?
-                1) SVD affinities
-                2) sort Singular Values
-                3) Calc diff's between singular values (as a percentage increase or absolute increase?)
-                    Eg: 1 -> 2 is 200% or +1 ?
-                4) Find stv of diff's between singular values
-                5) Choose the largest diff (or next largest difference if first has already been tried)
-    Q: How to tune alpha in metric between TV & ClosestLabelDist^2 ?
-    Q: Scaling of SVD with full image set a problem? SVD scales as (numImgs)^3 I think?
-    Q: Is my metric really smooth in terms of gamma? Jax seems to want that. New gamma's should give
-        totally new clusters, which will then have different metric values?
-    """
-    images = 5  # Load Images
-    images = np.array(images)
-    affinities = affinityMatrix(images, alpha0)
-    clusters = performClustering(affinities, n_clusters0)
-    all_cluster_labels = set(clusters)
-    total_metric_value = 0
-    for cluster_label in all_cluster_labels:
-        relevant_image_indices = [i for i, x in enumerate(clusters) if x == cluster_label]
-        relevant_images = images[relevant_image_indices]
-        convexCombo = convexMinimization(relevant_images)
-        min_metric_value = convexCombo['fun']
-        total_metric_value += min_metric_value
-
-
-def clustering_objective(gamma, images, metric, n_clusters, img_names, \
+def clustering_objective(gamma, images, n_clusters, img_names, \
         print_it=False, clustering_case='unconstrained', solver="SLSQP"):
     """
     Calculates the total metric value after convex minimization
@@ -379,13 +371,17 @@ def clustering_objective(gamma, images, metric, n_clusters, img_names, \
         relevant_images = np.array(images)[relevant_image_indices]
         relevant_clus_names = np.array(img_names)[relevant_image_indices]
         if clustering_case == 'constrained':
-            convexCombo = convexMinimization(relevant_images, metric, solver)
+            eval_criterion = convexComboMetricEval1Cluster
+            convexCombo = convexMinimization(relevant_images, eval_criterion, solver)
         elif clustering_case == 'unconstrained':
-            convexCombo = convexMinimization2(relevant_images, metric, solver)
+            eval_criterion = convComboMetricEval1ClusterUnconstrained
+            convexCombo = convexMinimization2(relevant_images, eval_criterion, solver)
         elif clustering_case == 'unconstrained_stack':
-            convexCombo = convexMinimization3(relevant_images, metric, solver)
+            eval_criterion = convComboMetricEval1ClusterUnconstrained
+            convexCombo = convexMinimization3(relevant_images, eval_criterion, solver)
         else:
-            convexCombo = convexMinimization3(relevant_images, metric, solver)
+            eval_criterion = convComboMetricEval1ClusterUnconstrained
+            convexCombo = convexMinimization3(relevant_images, eval_criterion, solver)
         min_metric_value = convexCombo['fun']
         clus_lambdas = convexCombo['x']
         frac = len(relevant_images) / len(images)
@@ -402,7 +398,8 @@ def clustering_objective(gamma, images, metric, n_clusters, img_names, \
 
 def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=False, 
              print_it=False, graph_it=True, display_clusts=True, 
-             clustering_case='unconstrained_stack'):
+             clustering_case='unconstrained_stack', only1=False,
+             solver="SLSQP"):
     """
     Identifies and prints lambdas and cluster indices for each
     possible number of clusters.
@@ -414,6 +411,7 @@ def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=Fals
                         True generate new data
         n_cs : number of clusters to generate if use_new_data = True
         save_centroids : bool - whether to save images of each centroid. NOT IMPLEMENTED
+        only1 : bool - if True doesn't test every possible num clusters, only the correct one
     """
     ys = []
     num_approx_zero_lamdbas = []
@@ -426,41 +424,50 @@ def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=Fals
         my_n = 3
     data = [i[1] for i in names_and_data]
     names = [i[0] for i in names_and_data]
-    for num_clusters in range(len(data)):
-        metric, clus_info = clustering_objective(
-            gamma=0.01, images=data, metric=convexComboMetricEval1Cluster,
-            n_clusters=num_clusters + 1, img_names=names, clustering_case=clustering_case)
+    if only1:
+        metric_val, clus_info = clustering_objective(
+            gamma=0.01, images=data, n_clusters=n_cs, solver=solver,
+            img_names=names, clustering_case=clustering_case)
+        
         num_approx_zero_lambdas_current_clus = extract_num_non_zero_lambdas(clus_info)
-        centroids = create_centroids(clus_info, data)
-        if display_clusts:
-            if num_clusters + 1 == my_n:
-                for centroid_num, centroid in centroids.items():
-                    opn.heatMapImg(centroid)
+        ys.append(metric_val)
+        xs = np.array(range(len(data))) + 1
+    else:
+        for num_clusters in range(len(data)):
+            metric_val, clus_info = clustering_objective(
+                gamma=0.01, images=data, n_clusters=num_clusters + 1, 
+                solver=solver, img_names=names, clustering_case=clustering_case)
+            num_approx_zero_lambdas_current_clus = extract_num_non_zero_lambdas(clus_info)
+            centroids = create_centroids(clus_info, data)
+            if display_clusts:
+                if num_clusters + 1 == my_n:
+                    for centroid_num, centroid in centroids.items():
+                        opn.heatMapImg(centroid)
 
-        ys.append(metric)
-        num_approx_zero_lamdbas.append(num_approx_zero_lambdas_current_clus)
+            ys.append(metric_val)
+            num_approx_zero_lamdbas.append(num_approx_zero_lambdas_current_clus)
+            if print_it:
+                print("For %d clusters: "%(num_clusters+1))
+                print(clus_info)
+
         if print_it:
-            print("For %d clusters: "%(num_clusters+1))
-            print(clus_info)
+            print("Metric Values: ")
+            print(ys)
 
-    if print_it:
-        print("Metric Values: ")
-        print(ys)
+        xs = np.array(range(len(data))) + 1
+        if graph_it:
+            fig, axs = plt.subplots(2, sharex=True)
 
-    xs = np.array(range(len(data))) + 1
-    if graph_it:
-        fig, axs = plt.subplots(2, sharex=True)
+            axs[0].plot(xs, ys)
+            axs[0].set_title("Metric Over Number of Clusters, n_cs=%d"%my_n)
+            axs[0].set_ylabel("Metric (TV + PureColorDist), smaller=better")
 
-        axs[0].plot(xs, ys)
-        axs[0].set_title("Metric Over Number of Clusters, n_cs=%d"%my_n)
-        axs[0].set_ylabel("Metric (TV + PureColorDist), smaller=better")
+            axs[1].plot(xs, num_approx_zero_lamdbas)
+            axs[1].set_title("Number of approx 0 Components across all Clusters, n_cs=%d" % my_n)
+            axs[1].set_xlabel("Number of Clusters")
+            axs[1].set_ylabel("Number of approx. 0 components")
 
-        axs[1].plot(xs, num_approx_zero_lamdbas)
-        axs[1].set_title("Number of approx 0 Components across all Clusters, n_cs=%d" % my_n)
-        axs[1].set_xlabel("Number of Clusters")
-        axs[1].set_ylabel("Number of approx. 0 components")
-
-        plt.show()
+            plt.show()
 
     return xs, ys, num_approx_zero_lamdbas
 
@@ -509,10 +516,9 @@ def how_often_correct(samples=100):
         names = [i[0] for i in random_data]
         ys = []
         for num_clusters in range(len(data)):
-            metric, clus_info = clustering_objective(
-                gamma=0.01, images=data, metric=convexComboMetricEval1Cluster,
-                n_clusters=num_clusters + 1, img_names=names)
-            ys.append(metric)
+            metric_val, clus_info = clustering_objective(
+                gamma=0.01, images=data, n_clusters=num_clusters + 1, img_names=names)
+            ys.append(metric_val)
         pred_n_cs = np.amin(ys)
         if pred_n_cs == n_cs:
             num_cor += 1
@@ -568,8 +574,7 @@ def generate_stats(n_cs=5, arraysPerCluster=5, num_samples=100):
 
 
 def convex_combo_lots_of_pts(data, names, num_clus=2, np_pts_per_clus=100, 
-                             display_clusts=False, solver="SLSQP",
-                             clustering_case='unconstrained'): #num_clus=2, np_pts_per_clus=100
+                             display_clusts=False, solver="SLSQP", clustering_case='unconstrained'): #num_clus=2, np_pts_per_clus=100
     """
     How long does it take to do larger convex combinations?
     """
@@ -583,9 +588,9 @@ def convex_combo_lots_of_pts(data, names, num_clus=2, np_pts_per_clus=100,
     names = [i[0] for i in names_and_data]
     '''
     s = time.time()
-    metric, clus_info = clustering_objective(
-            gamma=0.01, images=data, metric=convexComboMetricEval1Cluster,
-            n_clusters=num_clus, img_names=names, solver=solver, clustering_case=clustering_case)
+    metric_val, clus_info = clustering_objective(
+            gamma=0.01, images=data, n_clusters=num_clus, 
+            img_names=names, solver=solver, clustering_case=clustering_case)
     e = time.time()
     msg = """Given %d clusters and %d points per cluster, 
             time taken (s) for convex combo: """%(num_clus, np_pts_per_clus)
@@ -602,7 +607,7 @@ def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200],
                               clustering_case='unconstrained'):
     solvers = ["Nelder-Mead", "Powell", "CG", "BFGS", \
             "L-BFGS-B", "TNC", 'COBYLA', "SLSQP", "trust-constr"] 
-    solvers = ['COBYLA', "SLSQP"] 
+    solvers = ['COBYLA', "SLSQP"]
     #"trust-krylov", "trust-exact", "Newton-CG", "dogleg", "trust-ncg"
     # ^ All Error out: Jacobian is required for Newton-CG method error
     
@@ -720,10 +725,12 @@ def compare_tv(num_clus=2, np_pts_per_clus=2):
     num_pts = num_clus*np_pts_per_clus
     print("Amount of time for t1: %f and t2: %f"%(t1, t2))
     print("Avg time per pt: %f for t1 and %f for t2"%(t1/num_pts, t2/num_pts))   
+
         
 if __name__ == "__main__":
     # affinityMatrix(images, gamma=0.1)
-    # basic_ex()
+    basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=16, graph_it=False, display_clusts=False,
+             clustering_case='unconstrained', only1=True, solver='BFGS')
     #basic_ex(use_new_data=True, n_cs=5)
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
@@ -735,7 +742,7 @@ if __name__ == "__main__":
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='constrained')
     #pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
-    #gen_plot_from_saved(pickle_name, num_pts_to_test=[750,1000,1500])
+    #gen_plot_from_saved(pickle_name, num_pts_to_test=[50,60,70,80,90,100])
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
     #compare_tv(num_clus=2, np_pts_per_clus=1000)
 
