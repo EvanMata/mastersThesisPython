@@ -10,7 +10,9 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import SpectralClustering
 
 #from scipy.special import softmax
+from jax import jit #everything not jax array or dict; has to recompile every time they change.
 from jax.nn import softmax
+from functools import partial
 from scipy.optimize import minimize
 from jax.scipy.optimize import minimize as min2
 
@@ -234,7 +236,7 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
 
     return distOverall
 
-
+# JIT THIS
 def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, solver='SLSQP'):
     """
     clusterImages is the usual parameters we're using to form a convex combination,
@@ -254,7 +256,7 @@ def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, sol
 
     return finalLambdas
 
-
+# JIT THIS
 def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
                         solver='SLSQP', metric=customMetric):
     """
@@ -283,7 +285,7 @@ def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUncons
     mini_d['fun'] = finalLambdas.fun
     return mini_d
 
-
+# Jit this?
 def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
                         solver='SLSQP'):
     """
@@ -301,7 +303,7 @@ def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUncons
     subsets_info = dict()
     num_subsets = int(np.sqrt(len(params)))
     partitioned_sets = partition_sets(params, num_subsets)
-    for i in range(len(partitioned_sets)):
+    for i in range(len(partitioned_sets)): #Vectirize this?
         partial_set = partitioned_sets[i]
         setInfo = convexMinimization2(partial_set, eval_criterion, solver)
         setLambdas = setInfo['x']
@@ -570,7 +572,7 @@ def generate_stats(n_cs=5, arraysPerCluster=5, num_samples=100):
 
     plt.show()
 
-
+#@partial(jit, static_argnums=[1,2,3,4,5,6])
 def convex_combo_lots_of_pts(data, names, num_clus=2, np_pts_per_clus=100, 
                              display_clusts=False, solver="SLSQP", clustering_case='unconstrained'): #num_clus=2, np_pts_per_clus=100
     """
