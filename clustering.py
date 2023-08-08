@@ -1,3 +1,4 @@
+import jax
 import time
 import pickle
 
@@ -5,12 +6,9 @@ import numpy as np
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-
-
 from sklearn.cluster import SpectralClustering
 
 #from scipy.special import softmax
-from jax import jit #everything not jax array or dict; has to recompile every time they change.
 from jax.nn import softmax
 from functools import partial
 from scipy.optimize import minimize
@@ -236,7 +234,9 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
 
     return distOverall
 
-# JIT THIS
+# JIT THIS - issue will be functional inputs.
+# @jax.jit
+@partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
 def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, solver='SLSQP'):
     """
     clusterImages is the usual parameters we're using to form a convex combination,
@@ -256,7 +256,8 @@ def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, sol
 
     return finalLambdas
 
-# JIT THIS
+# JIT THIS - issue will be functional inputs.
+@jax.jit
 def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
                         solver='SLSQP', metric=customMetric):
     """
@@ -738,7 +739,7 @@ if __name__ == "__main__":
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[750,1000,1500],
     #                          clustering_case='unconstrained_stack')
     convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-                              clustering_case='unconstrained')
+                              clustering_case='constrained')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='constrained')
     #pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
