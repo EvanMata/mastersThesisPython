@@ -234,9 +234,7 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
 
     return distOverall
 
-# JIT THIS - issue will be functional inputs.
-# @jax.jit
-@partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
+# JAX MINIMIZE DOES NOT YET SUPPORT CONSTRAINED OPTIMIZATION METHODS. CANNOT JIT THIS.
 def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, solver='SLSQP'):
     """
     clusterImages is the usual parameters we're using to form a convex combination,
@@ -251,13 +249,13 @@ def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, sol
     arguments = params
 
     finalLambdas = minimize(eval_criterion, initialLambdaGuesses,
-                            method='SLSQP', args=arguments,
+                            method=solver, args=arguments,
                             bounds=bnds, constraints=cons)
 
     return finalLambdas
 
 # JIT THIS - issue will be functional inputs.
-@jax.jit
+@partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'metric'])
 def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
                         solver='SLSQP', metric=customMetric):
     """
@@ -391,7 +389,8 @@ def clustering_objective(gamma, images, n_clusters, img_names, \
         lambdas_dict[cluster_label] = lambdas_and_indices
     o_e = time.time()
     t_e = time.time()
-    print("Total Time: %f, Affininty Time: %f, Clustering Time: %f, Optimization_time: %f"%
+    if print_it:
+        print("Total Time: %f, Affininty Time: %f, Clustering Time: %f, Optimization_time: %f"%
           (t_e - t_s, a_e - a_s, c_e - c_s, o_e - o_s))
     
     return total_metric_value, lambdas_dict
@@ -575,28 +574,22 @@ def generate_stats(n_cs=5, arraysPerCluster=5, num_samples=100):
 
 #@partial(jit, static_argnums=[1,2,3,4,5,6])
 def convex_combo_lots_of_pts(data, names, num_clus=2, np_pts_per_clus=100, 
-                             display_clusts=False, solver="SLSQP", clustering_case='unconstrained'): #num_clus=2, np_pts_per_clus=100
+                             display_clusts=False, solver="SLSQP", 
+                             clustering_case='unconstrained', print_it=False): #num_clus=2, np_pts_per_clus=100
     """
     How long does it take to do larger convex combinations?
     """
-    
-    '''
-    names_and_data = dg.gen_fake_data(num_clus=num_clus, 
-                                np_pts_per_clus=np_pts_per_clus, 
-                                display_imgs=False, 
-                                save_files=False)
-    data = [i[1] for i in names_and_data]
-    names = [i[0] for i in names_and_data]
-    '''
     s = time.time()
     metric_val, clus_info = clustering_objective(
             gamma=0.01, images=data, n_clusters=num_clus, 
-            img_names=names, solver=solver, clustering_case=clustering_case)
+            img_names=names, solver=solver, clustering_case=clustering_case,
+            print_it=print_it)
     e = time.time()
-    msg = """Given %d clusters and %d points per cluster, 
-            time taken (s) for convex combo: """%(num_clus, np_pts_per_clus)
     time_taken = e - s
-    print(msg, time_taken)
+    if print_it:
+        msg = """Given %d clusters and %d points per cluster, 
+            time taken (s) for convex combo: """%(num_clus, np_pts_per_clus)
+        print(msg, time_taken)
     if display_clusts:
         centroids = create_centroids(clus_info, data)
         for centroid_num, centroid in centroids.items():
@@ -653,6 +646,27 @@ def convex_combo_time_scaling(num_clus, num_pts_to_test=[5,10,20,50,100,200],
     
     plt_name += ".png"
     plt.savefig(plt_name)
+
+
+def time_it(num_clus=5, num_pts=100, num_tries=10, clustering_case='unconstrained'):
+    solver = 'BFGS'
+    names_and_data = dg.gen_fake_data(num_clus=num_clus, 
+                                np_pts_per_clus=num_pts, 
+                                display_imgs=False, 
+                                save_files=False)
+    data = [i[1] for i in names_and_data]
+    names = [i[0] for i in names_and_data]
+
+    times_taken = []
+    for test in range(num_tries):
+        tot_time_taken = convex_combo_lots_of_pts(\
+                data, names, num_clus=num_clus, 
+                np_pts_per_clus=num_pts,
+                solver=solver, display_clusts=False, 
+                clustering_case=clustering_case)
+        times_taken.append(tot_time_taken)
+        print(tot_time_taken)
+    print(times_taken)
 
 
 def gen_plot_from_saved(pickle_name, num_pts_to_test):
@@ -738,12 +752,12 @@ if __name__ == "__main__":
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[750,1000,1500],
     #                          clustering_case='unconstrained_stack')
-    convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
-                              clustering_case='constrained')
+    #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
+    #                          clustering_case='unconstrained')
+    time_it(num_clus=2, num_pts=1000, num_tries=5, clustering_case='unconstrained')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='constrained')
     #pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
     #gen_plot_from_saved(pickle_name, num_pts_to_test=[50,60,70,80,90,100])
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
     #compare_tv(num_clus=2, np_pts_per_clus=1000)
-
