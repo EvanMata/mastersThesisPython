@@ -254,7 +254,7 @@ def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, sol
 
     return finalLambdas
 
-# JIT THIS - issue will be functional inputs.
+
 @partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'metric'])
 def convexMinimization2(params, eval_criterion=convComboMetricEval1ClusterUnconstrained, 
                         solver='SLSQP', metric=customMetric):
@@ -396,6 +396,39 @@ def clustering_objective(gamma, images, n_clusters, img_names, \
     return total_metric_value, lambdas_dict
 
 
+#@partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
+def minimization_metric_and_lambdas(total_metric_value, lambdas_dict, \
+                                    cluster_label_to_eval, clusters, images, img_names, \
+                                    eval_criterion = convComboMetricEval1ClusterUnconstrained, \
+                                    solver='BFGS'):
+    relevant_image_indices = [i for i, x in enumerate(clusters) if x == cluster_label_to_eval]
+    relevant_images = jnp.array(images)[relevant_image_indices]
+    relevant_clus_names = jnp.array(img_names)[relevant_image_indices]
+    convexCombo = convexMinimization2(relevant_images, eval_criterion, solver)
+    min_metric_value = convexCombo['fun']
+    clus_lambdas = convexCombo['x']
+    frac = len(relevant_images) / len(images)
+    total_metric_value += min_metric_value*frac
+    lambdas_and_indices = list(zip(clus_lambdas, relevant_image_indices))
+    lambdas_dict[cluster_label_to_eval] = lambdas_and_indices
+    return total_metric_value, lambdas_dict
+
+def slim_clustering_obj(gamma, images, n_clusters, img_names):
+    """
+    Designed to be used w. jit
+    """
+    total_metric_value = 0
+    lambdas_dict = dict()
+    affinities = affinityMatrix(images, gamma)
+    clusters = performClustering(affinities, n_clusters)
+    all_cluster_labels = set(clusters)
+    for cluster_label in all_cluster_labels:
+        total_metric_value, lambdas_dict = minimization_metric_and_lambdas( \
+                                    total_metric_value, lambdas_dict, \
+                                    cluster_label, clusters, images, img_names)
+    return total_metric_value, lambdas_dict
+
+
 def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=False, 
              print_it=False, graph_it=True, display_clusts=True, 
              clustering_case='unconstrained_stack', only1=False,
@@ -425,9 +458,13 @@ def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=Fals
     data = [i[1] for i in names_and_data]
     names = [i[0] for i in names_and_data]
     if only1:
+        """
         metric_val, clus_info = clustering_objective(
             gamma=0.01, images=data, n_clusters=n_cs, solver=solver,
             img_names=names, clustering_case=clustering_case)
+        """
+        metric_val, clus_info = slim_clustering_obj(gamma=0.01, images=data, \
+                                                    n_clusters=n_cs, img_names=names)
         
         num_approx_zero_lambdas_current_clus = extract_num_non_zero_lambdas(clus_info)
         ys.append(metric_val)
@@ -487,7 +524,7 @@ def extract_num_non_zero_lambdas(clustering_info_dict):
     return num_approx_zero
 
 
-def create_centroids(clustering_info_dict, data_list):
+def create_centroids(clustering_info_dict, data_list): #CHECK ON NON-SYNTH DATA
     """
     Creates the centroids of a given clustering
     MAKE SURE THIS WORKS FOR NON-SYNTHETIC DATA, SPECIFICALLY i[1] STILL INDEX.
@@ -745,8 +782,8 @@ def compare_tv(num_clus=2, np_pts_per_clus=2):
         
 if __name__ == "__main__":
     # affinityMatrix(images, gamma=0.1)
-    #basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=16, graph_it=False, display_clusts=False,
-    #         clustering_case='unconstrained', only1=True, solver='BFGS')
+    basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=50, graph_it=False, display_clusts=False,
+             clustering_case='unconstrained', only1=True, solver='BFGS')
     #basic_ex(use_new_data=True, n_cs=5)
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
@@ -754,7 +791,7 @@ if __name__ == "__main__":
     #                          clustering_case='unconstrained_stack')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='unconstrained')
-    time_it(num_clus=2, num_pts=1000, num_tries=5, clustering_case='unconstrained')
+    #time_it(num_clus=2, num_pts=1000, num_tries=5, clustering_case='unconstrained')
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[50,60,70,80,90,100],
     #                          clustering_case='constrained')
     #pickle_name = 'constrained'+"_time_taken_lambdas_opti"+"_data.pickle"
