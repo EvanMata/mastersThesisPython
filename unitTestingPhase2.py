@@ -160,8 +160,80 @@ def visualize_fft(my_mode=' 1-1', using_helicity=True):
     opn.heatMapImg(real_sp_maybe)
 
 
+def t1_clustering_caches():
+    # Should be YES
+    l1 = [0,0,1,1,]
+    l2 = [1,1,0,1]
+    nl1 = clu.clustering_to_cachable_labels(l1)
+    nl2 = clu.clustering_to_cachable_labels(l2)
+
+    for i in range(len(nl1)):
+        if nl1[i] != nl2[i]:
+            print("NOT the same clustering")
+            return
+    print("SAME clustering")
+
+
+def t2_clustering_caches():
+    # Should be NO, order of points matters
+    l1 = [0,0,1,1,2]
+    l2 = [1,1,0,2,2]
+    nl1 = clu.clustering_to_cachable_labels(l1)
+    nl2 = clu.clustering_to_cachable_labels(l2)
+
+    for i in range(len(nl1)):
+        if nl1[i] != nl2[i]:
+            print("NOT the same clustering")
+            return
+    print("SAME clustering")
+
+
+def t3_clustering_caches():
+    # Should be YES, order of points matters
+    l1 = [0,0,1,1,2,3,4]
+    l2 = [1,1,0,0,2,4,3]
+    nl1 = clu.clustering_to_cachable_labels(l1)
+    nl2 = clu.clustering_to_cachable_labels(l2)
+
+    for i in range(len(nl1)):
+        if nl1[i] != nl2[i]:
+            print("NOT the same clustering")
+            return
+    print("SAME clustering")
+
+
+def t4_clustering_caches():
+    # Should be NO, order of points matters
+    l1 = [0,0,1,1,2,3,4,5,5,5]
+    l2 = [5,1,5,1,0,0,2,4,3,5]
+    nl1 = clu.clustering_to_cachable_labels(l1)
+    nl2 = clu.clustering_to_cachable_labels(l2)
+
+    for i in range(len(nl1)):
+        if nl1[i] != nl2[i]:
+            print("NOT the same clustering")
+            return
+    print("SAME clustering")
+
+
+def t5_clustering_caches():
+    # Should be NO, order of points matters
+    l1 = [0,0,1,1,5,5,5,2,3,4]
+    l2 = [1,1,0,0,5,5,5,2,4,3]
+    nl1 = clu.clustering_to_cachable_labels(l1)
+    nl2 = clu.clustering_to_cachable_labels(l2)
+
+    for i in range(len(nl1)):
+        if nl1[i] != nl2[i]:
+            print("NOT the same clustering")
+            return
+    print("SAME clustering")
+
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
-    t_mode_is_avg(using_helicity=True, print_it=True)
+    #t_mode_is_avg(using_helicity=True, print_it=True)
     #visualize_fft()
+    #print(clustering_to_cachable_labels([0,0,1,1]))
+    #print(clustering_to_cachable_labels([1,1,0,0]))
+    t5_clustering_caches()

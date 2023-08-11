@@ -10,7 +10,7 @@ from sklearn.cluster import SpectralClustering
 
 #from scipy.special import softmax
 from jax.nn import softmax
-from functools import partial
+from functools import lru_cache, partial
 from scipy.optimize import minimize
 from jax.scipy.optimize import minimize as min2
 
@@ -82,26 +82,25 @@ def total_variation_norm(img):
     tv_dist = tot / norm_factor
     return tv_dist
 
-
+@jax.jit
 def affinityMatrix(images, gamma):
     """
     Generate the affinity matrix for the given images and
     the set value of gamma parameterizing the affinity function
     """
-    affinities = np.zeros((len(images), len(images)))
+    affinities = jnp.zeros((len(images), len(images)))
     for i in range(len(images)):
         for j in range(i+1, len(images)):
             pairAffinity = calcPairAffinity(images[i], images[j], gamma)
-            affinities[i, j] = pairAffinity
-            affinities[j, i] = pairAffinity
-
-        affinities[i, i] = 1
+            affinities = affinities.at[i, j].set(pairAffinity)
+            affinities = affinities.at[j, i].set(pairAffinity)
+        affinities = affinities.at[i, i].set(1)
     return affinities
 
 
 def calcPairAffinity(image1, image2, gamma):
-    diff = np.abs(np.sum(image1 - image2))  # L1 Norm, no further normalization
-    return np.exp(-gamma*diff)
+    diff = jnp.abs(jnp.sum(image1 - image2))  # L1 Norm, no further normalization
+    return jnp.exp(-gamma*diff)
 
 
 def performClustering(affinities, n_clusters):
@@ -113,6 +112,34 @@ def performClustering(affinities, n_clusters):
                                     random_state=0).fit(affinities)
     clusters = clustering.labels_
     return clusters
+
+#@jax.jit Maybe jitable but need to find workaround for .count
+def clustering_to_cachable_labels(clusters):
+    """
+    Ensures that [0,0,1,1] & [1,1,0,0] or any other pair 
+    of cluster labels that I recieve and are equivalent up to 
+    the cluster labeling scheme all get mapped to the same thing
+
+    #Prob a better way to do this. Try to jit?
+    """
+    counts = [clusters.count(x) for x in clusters]
+    clus_to_occurances = dict(zip(clusters, counts))
+    counts_list = [count for clus, count in clus_to_occurances.items()]
+
+    for count in set(counts_list):
+        clusts_w_given_count = [i for i, c in enumerate(counts_list) if c == count]
+        initial_indices = sorted([(clusters.index(tied_label), tied_label) \
+                           for tied_label in clusts_w_given_count])
+        for i in range(len(initial_indices)):
+            init_index, clus = initial_indices[i]
+            og_count = clus_to_occurances[clus]
+            clus_to_occurances[clus] = og_count + .1*i
+
+    data = [(count, clus) for clus, count in clus_to_occurances.items()]
+    sorted_data = sorted(data)
+    clusts_mapping = dict([(t[1], i) for i, t in enumerate(sorted_data)])
+    new_clusters = [clusts_mapping[clus] for clus in clusters]
+    return new_clusters
 
 
 def customMetric(image, lambdaVal=0.5):  # rename closest_sq_dist_tv_mix
@@ -234,6 +261,40 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
 
     return distOverall
 
+
+#@partial(jax.jit, static_argnames=['n_clusters'])
+#Can't jit this bc. sklearn clustering is behind the hood trying to use numpy
+def slim_clustering_obj(gamma, images, n_clusters):
+    """
+    Clustering given my gamma and params. This is what I want to minimize
+    """
+    gamma = softmax(jnp.array([gamma]))
+    affinities = affinityMatrix(images, gamma)
+    clusters = performClustering(affinities, n_clusters)
+    clusters = clustering_to_cachable_labels(clusters)
+    total_metric_value, lambdas_dict = clustering_labels_cached(clusters, images)
+    #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
+    return total_metric_value
+
+@lru_cache
+def clustering_labels_cached(clusters, images):
+    """
+    
+    """
+    lambdas_dict = dict()
+    total_metric_value = 0
+    all_cluster_labels = set(clusters)
+    clusters = jnp.array(clusters)
+    for cluster_label in all_cluster_labels:
+        relevant_image_indices = jnp.array([i for i, x in enumerate(clusters) \
+                                            if x == cluster_label])
+        total_metric_value, temp_lambdas_dict = minimization_metric_and_lambdas( \
+                                    total_metric_value, cluster_label, \
+                                    relevant_image_indices, images)
+        lambdas_dict = {**lambdas_dict, **temp_lambdas_dict}
+    return total_metric_value, lambdas_dict
+
+
 # JAX MINIMIZE DOES NOT YET SUPPORT CONSTRAINED OPTIMIZATION METHODS. CANNOT JIT THIS.
 def convexMinimization(params, eval_criterion=convexComboMetricEval1Cluster, solver='SLSQP'):
     """
@@ -335,6 +396,28 @@ def convexMinimization3(params, eval_criterion=convComboMetricEval1ClusterUncons
     return all_info
 
 
+#@partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'metric'])
+#Can't jit this, needs to do clustering as part of metric eval. NOt worth anywyas,
+def affinityMinimization(images, n_clusters, eval_criterion=slim_clustering_obj, 
+                        solver='BFGS'):
+    """
+    Performs the minization for my gaussian affinity kernel.    
+    """
+    mini_d = dict()
+    # Prior 
+    initialGuess = jnp.array([0.01])
+    arguments = [images, n_clusters]
+    arguments = tuple(arguments)
+
+    metric_info = min2(eval_criterion, initialGuess,
+                            method=solver, args=arguments)
+    # #My returned ~lambdas are the unconstrained items - affinity kernel is not that
+    constrained_affinity = softmax(metric_info.x)
+    mini_d['x'] = constrained_affinity
+    mini_d['fun'] = metric_info.fun
+    return mini_d
+
+
 def partition_sets(a, n):
     # Split list a into n non-overlapping parts
     k, m = divmod(len(a), n)
@@ -396,37 +479,25 @@ def clustering_objective(gamma, images, n_clusters, img_names, \
     return total_metric_value, lambdas_dict
 
 
-#@partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
-def minimization_metric_and_lambdas(total_metric_value, lambdas_dict, \
-                                    cluster_label_to_eval, clusters, images, img_names, \
+@partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
+def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
+                                    relevant_image_indices, images, 
                                     eval_criterion = convComboMetricEval1ClusterUnconstrained, \
                                     solver='BFGS'):
-    relevant_image_indices = [i for i, x in enumerate(clusters) if x == cluster_label_to_eval]
-    relevant_images = jnp.array(images)[relevant_image_indices]
-    relevant_clus_names = jnp.array(img_names)[relevant_image_indices]
+    """
+    Calculates my metric value accross the entire clustering 
+    (for the given clustering / affinity alpha value)
+    """
+    temp_lambdas_dict = dict()
+    relevant_images = jnp.array(images)[jnp.array(relevant_image_indices)]
     convexCombo = convexMinimization2(relevant_images, eval_criterion, solver)
     min_metric_value = convexCombo['fun']
     clus_lambdas = convexCombo['x']
     frac = len(relevant_images) / len(images)
     total_metric_value += min_metric_value*frac
     lambdas_and_indices = list(zip(clus_lambdas, relevant_image_indices))
-    lambdas_dict[cluster_label_to_eval] = lambdas_and_indices
-    return total_metric_value, lambdas_dict
-
-def slim_clustering_obj(gamma, images, n_clusters, img_names):
-    """
-    Designed to be used w. jit
-    """
-    total_metric_value = 0
-    lambdas_dict = dict()
-    affinities = affinityMatrix(images, gamma)
-    clusters = performClustering(affinities, n_clusters)
-    all_cluster_labels = set(clusters)
-    for cluster_label in all_cluster_labels:
-        total_metric_value, lambdas_dict = minimization_metric_and_lambdas( \
-                                    total_metric_value, lambdas_dict, \
-                                    cluster_label, clusters, images, img_names)
-    return total_metric_value, lambdas_dict
+    temp_lambdas_dict[cluster_label_to_eval] = lambdas_and_indices
+    return total_metric_value, temp_lambdas_dict
 
 
 def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=False, 
@@ -462,13 +533,20 @@ def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=Fals
         metric_val, clus_info = clustering_objective(
             gamma=0.01, images=data, n_clusters=n_cs, solver=solver,
             img_names=names, clustering_case=clustering_case)
-        """
+
         metric_val, clus_info = slim_clustering_obj(gamma=0.01, images=data, \
-                                                    n_clusters=n_cs, img_names=names)
-        
+                                                    n_clusters=n_cs)
+
         num_approx_zero_lambdas_current_clus = extract_num_non_zero_lambdas(clus_info)
+        print(clus_info)
+        """
+        
+        metric_val = slim_clustering_obj(gamma=0.01, images=data, \
+                                                    n_clusters=n_cs)
+        
         ys.append(metric_val)
         xs = np.array(range(len(data))) + 1
+        
     else:
         for num_clusters in range(len(data)):
             metric_val, clus_info = clustering_objective(
@@ -507,6 +585,77 @@ def basic_ex(use_new_data=False, n_cs=5, arraysPerCluster=3, save_centroids=Fals
             plt.show()
 
     return xs, ys, num_approx_zero_lamdbas
+
+
+def affinity_min_ex(use_new_data=True, n_cs=5, arraysPerCluster=15, save_centroids=False, \
+            print_it=False, graph_it=True, display_clusts=False, only1=True, solver="BFGS"):
+    """
+    Attempts to perform an affinity matrix minimization.
+    """
+    ys = []
+    num_approx_zero_lamdbas = []
+    if use_new_data:
+        names_and_data = dg.genClusters(numClusters=n_cs, arraysPerCluster=arraysPerCluster, n1=100, n2=100,
+                                        noiseLv=0.25, display=False, saveClusters=False)
+        my_n = n_cs
+    else:
+        names_and_data = opn.openSyntheticData()
+        my_n = 3
+    data = [i[1] for i in names_and_data]
+    names = [i[0] for i in names_and_data]
+    if only1:
+        """
+        metric_val, clus_info = slim_clustering_obj(gamma=0.01, images=data, \
+                                                    n_clusters=n_cs)
+        """
+        metric_val = affinityMinimization(data, my_n, eval_criterion=slim_clustering_obj, 
+                        solver=solver)
+        
+        # Probably want to recompute the corresponding lambdas here for the given ideal affinity.
+        ys.append(metric_val)
+        xs = np.array(range(len(data))) + 1
+        print(metric_val)
+    else:
+        for num_clusters in range(len(data)):
+            metric_val = affinityMinimization(data, my_n, eval_criterion=slim_clustering_obj, 
+                        solver=solver)
+            '''
+            num_approx_zero_lambdas_current_clus = extract_num_non_zero_lambdas(clus_info)
+            centroids = create_centroids(clus_info, data)
+            if display_clusts:
+                if num_clusters + 1 == my_n:
+                    for centroid_num, centroid in centroids.items():
+                        opn.heatMapImg(centroid)
+            '''
+            ys.append(metric_val)
+            #num_approx_zero_lamdbas.append(num_approx_zero_lambdas_current_clus)
+            #if print_it:
+            #    print("For %d clusters: "%(num_clusters+1))
+            #    print(clus_info)
+
+        if print_it:
+            print("Metric Values: ")
+            print(ys)
+
+        xs = np.array(range(len(data))) + 1
+        if graph_it:
+            fig, axs = plt.subplots(2, sharex=True)
+
+            axs[0].plot(xs, ys)
+            axs[0].set_title("Metric Over Number of Clusters, n_cs=%d"%my_n)
+            axs[0].set_ylabel("Metric (TV + PureColorDist), smaller=better")
+
+            """
+            axs[1].plot(xs, num_approx_zero_lamdbas)
+            axs[1].set_title("Number of approx 0 Components across all Clusters, n_cs=%d" % my_n)
+            axs[1].set_xlabel("Number of Clusters")
+            axs[1].set_ylabel("Number of approx. 0 components")
+            """
+
+            plt.show()
+
+    #return xs, ys, num_approx_zero_lamdbas
+    return xs, ys
 
 
 def extract_num_non_zero_lambdas(clustering_info_dict):
@@ -784,6 +933,7 @@ if __name__ == "__main__":
     # affinityMatrix(images, gamma=0.1)
     basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=50, graph_it=False, display_clusts=False,
              clustering_case='unconstrained', only1=True, solver='BFGS')
+    #clustering_to_cachable_labels(clusters=jnp.array([0,0,1,1]))
     #basic_ex(use_new_data=True, n_cs=5)
     # how_often_correct(samples=15)
     # generate_stats(n_cs=2, arraysPerCluster=5, num_samples=40)
@@ -798,3 +948,11 @@ if __name__ == "__main__":
     #gen_plot_from_saved(pickle_name, num_pts_to_test=[50,60,70,80,90,100])
     #convex_combo_time_scaling(num_clus=2, num_pts_to_test=[400,500,600,700,800,900,1000])
     #compare_tv(num_clus=2, np_pts_per_clus=1000)
+    '''
+    s = time.time()
+    affinity_min_ex(use_new_data=True, n_cs=3, arraysPerCluster=15, save_centroids=False, \
+            print_it=False, graph_it=True, display_clusts=False, only1=True, solver="BFGS")
+    e = time.time()
+    print("TIME TAKEN:")
+    print(e - s)
+    '''
