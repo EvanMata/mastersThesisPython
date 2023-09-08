@@ -100,7 +100,7 @@ def affinityMatrix(images, gamma):
 
 def calcPairAffinity(image1, image2, gamma):
     diff = jnp.abs(jnp.sum(image1 - image2))  # L1 Norm, no further normalization
-    return jnp.exp(-gamma*diff)
+    return jnp.exp(-gamma*diff)[0]
 
 
 def performClustering(affinities, n_clusters):
@@ -122,6 +122,7 @@ def clustering_to_cachable_labels(clusters):
 
     #Prob a better way to do this. Try to jit?
     """
+    clusters = list(clusters)
     counts = [clusters.count(x) for x in clusters]
     clus_to_occurances = dict(zip(clusters, counts))
     counts_list = [count for clus, count in clus_to_occurances.items()]
@@ -272,6 +273,8 @@ def slim_clustering_obj(gamma, images, n_clusters):
     affinities = affinityMatrix(images, gamma)
     clusters = performClustering(affinities, n_clusters)
     clusters = clustering_to_cachable_labels(clusters)
+    clusters = tuple(clusters)
+    images = tuple(images) #still a tup of np arrays, need to fix
     total_metric_value, lambdas_dict = clustering_labels_cached(clusters, images)
     #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
     return total_metric_value
