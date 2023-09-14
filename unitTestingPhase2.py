@@ -229,6 +229,19 @@ def t5_clustering_caches():
             return
     print("SAME clustering")
 
+
+def t_reverse_str(arr):
+    import jax.numpy as jnp
+    ar_s = jnp.array_str(arr)
+    arr2 = clu.jnp_array_from_str(ar_s, arr.shape)
+    print(jnp.array_equal(arr, arr2))
+
+
+def gen_random_uni_arr(my_shape=(1000,)):
+    from jax import random
+    key = random.PRNGKey(758493)  # Random seed is explicit in JAX
+    return random.uniform(key, shape=my_shape)
+
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
@@ -236,4 +249,5 @@ if __name__ == "__main__":
     #visualize_fft()
     #print(clustering_to_cachable_labels([0,0,1,1]))
     #print(clustering_to_cachable_labels([1,1,0,0]))
-    t5_clustering_caches()
+    #t5_clustering_caches()
+    t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
