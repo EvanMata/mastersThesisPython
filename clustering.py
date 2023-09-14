@@ -82,6 +82,14 @@ def total_variation_norm(img):
     tv_dist = tot / norm_factor
     return tv_dist
 
+
+def jnp_array_from_str(jnp_array_str, old_shape):
+    # Takes a jnp array string from jnp.array_str() and turns into a jnp array
+    basic_parse = jnp_array_str.replace('[', "").replace(']', "")
+    my_array = jnp.fromstring(basic_parse, sep=' ').reshape(old_shape)
+    return my_array
+
+
 @jax.jit
 def affinityMatrix(images, gamma):
     """
@@ -274,20 +282,39 @@ def slim_clustering_obj(gamma, images, n_clusters):
     clusters = performClustering(affinities, n_clusters)
     clusters = clustering_to_cachable_labels(clusters)
     clusters = tuple(clusters)
-    images = tuple(images) #still a tup of np arrays, need to fix
-    total_metric_value, lambdas_dict = clustering_labels_cached(clusters, images)
+    images_str = jnp.array_str(images) #Now Hashable
+    total_metric_value, lambdas_dict = clustering_labels_cached(clusters, images_str, images.shape)
     #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
     return total_metric_value
 
 @lru_cache
-def clustering_labels_cached(clusters, images):
+def clustering_labels_cached(clusters, images_str, imgs_shape):
     """
-    
+    Finds the convex combo params and total metric value for a given clustering
+    Does so in a memoized/cached manner to save on affinity paramaterization tuning
+    time. 
+
+    Inputs:
+    -------
+    clusters (tuple) : tuple where img at index i has value cluster (int)
+        eg [1, 1, 0, 2] is items 1 & 2 in clus 1, 3 in clus 0 and 4 in clus 2. 
+    images_str (string) : string encoding all the data in all of my images. 
+        Eg '[-0.5  0.40000001\n   0.30000001  2. \n\n  0.1  0. \n   0.   1. ]'
+        as [[[-0.5, 0.4],[0.3, 2]], [[.1, 0],[0, 1]]]
+    imgs_shape (tuple) : The shape of the array of images used to generate images_str  
+
+    Returns:
+    --------
+    total_metric_value (float) :  the sum of my metric value across each cluster
+    lamdbas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
+        Where img_i is in the given cluster
     """
+    images = jnp_array_from_str(images_str, imgs_shape)
     lambdas_dict = dict()
     total_metric_value = 0
     all_cluster_labels = set(clusters)
     clusters = jnp.array(clusters)
+    # Maybe vmap-able? lambdas_dict may be annoying to construct
     for cluster_label in all_cluster_labels:
         relevant_image_indices = jnp.array([i for i, x in enumerate(clusters) \
                                             if x == cluster_label])
@@ -490,6 +517,23 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
     """
     Calculates my metric value accross the entire clustering 
     (for the given clustering / affinity alpha value)
+
+    Inputs:
+    --------
+    total_metric_value (float) : metric value evaluated on the previous cluster(s)
+    cluster_label_to_eval (int) : the label of the cluster to be evaluated
+    relevant_image_indices (jax arr) : array of the indices of images in the given clus
+    images (jnp arr) : Data, array of arrays where an img is a n x n array
+    eval_criterion (func) : func which given your imgs & lambdas returns the metric val 
+    solver (str) : The type of solver to use w. optimize. 
+                    Only BFGS currently supported in jax
+
+    Returns:
+    --------
+    total_metric_value (float) : the input total metric value with the 
+        current cluster's metric value added on w. the relevant weighting frac 
+        of the total number of pts
+    temp_lambdas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
     """
     temp_lambdas_dict = dict()
     relevant_images = jnp.array(images)[jnp.array(relevant_image_indices)]
