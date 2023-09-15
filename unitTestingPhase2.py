@@ -1,12 +1,16 @@
 import os
 import sys
+import jax
 
 import numpy as np
+import jax.numpy as jnp
 import clustering as clu
 import openRawData as opn
 import pathlib_variable_names as var_names
 
+from jax import random
 from pathlib import Path
+from itertools import combinations
 
 sys.path.append('./python_provided_code/')
 from fth_reconstruction import reconstructCDI as my_fft
@@ -231,16 +235,37 @@ def t5_clustering_caches():
 
 
 def t_reverse_str(arr):
-    import jax.numpy as jnp
     ar_s = jnp.array_str(arr)
     arr2 = clu.jnp_array_from_str(ar_s, arr.shape)
     print(jnp.array_equal(arr, arr2))
 
 
+def t_vmaped_mat_construction(arr_of_imgs, gamma=0.5):
+    def ez_mat_func(im1, im2, gamma):
+        im = im1 + im2
+        val = gamma + jnp.sum(im)
+        return val
+    #Set clustering func to take in dist func, and 2nd param of vmap
+    # Split into 2 funcs?
+    arr = clu.affinity_matrix(arr_of_imgs, gamma)
+    print(arr)
+    print()
+    arr2 = clu.affinity_matrix(arr_of_imgs, gamma, 
+                                 pair_affinity_func=clu.calcPairAffinity, 
+                                 pair_affinity_parallel_axes=(0, 0, None))
+    print(arr2)
+    print()
+    arr3 = clu.affinity_matrix(arr_of_imgs, gamma, 
+                                 pair_affinity_func=ez_mat_func, 
+                                 pair_affinity_parallel_axes=(0, 0, None))
+    print(arr3)
+    return arr
+
+
 def gen_random_uni_arr(my_shape=(1000,)):
-    from jax import random
     key = random.PRNGKey(758493)  # Random seed is explicit in JAX
     return random.uniform(key, shape=my_shape)
+
 
 if __name__ == "__main__":
     #t_dPC_5()
@@ -250,4 +275,6 @@ if __name__ == "__main__":
     #print(clustering_to_cachable_labels([0,0,1,1]))
     #print(clustering_to_cachable_labels([1,1,0,0]))
     #t5_clustering_caches()
-    t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
+    #t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
+    arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]]])
+    t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)

@@ -10,6 +10,7 @@ from sklearn.cluster import SpectralClustering
 
 #from scipy.special import softmax
 from jax.nn import softmax
+from itertools import combinations
 from functools import lru_cache, partial
 from scipy.optimize import minimize
 from jax.scipy.optimize import minimize as min2
@@ -108,7 +109,41 @@ def affinityMatrix(images, gamma):
 
 def calcPairAffinity(image1, image2, gamma):
     diff = jnp.abs(jnp.sum(image1 - image2))  # L1 Norm, no further normalization
-    return jnp.exp(-gamma*diff)[0]
+    return jnp.exp(-gamma*diff)#[0] #USED FOR OLD AFF CON, NOT NEW.
+
+
+@partial(jax.jit, static_argnames=['pair_affinity_func', 'pair_affinity_parallel_axes'])
+def affinity_matrix(arr_of_imgs, gamma=0.5, \
+                      pair_affinity_func=calcPairAffinity, 
+                      pair_affinity_parallel_axes=(0, 0, None)):
+                      #pair_affinity_func=ez_mat_func,
+                      #pair_affinity_parallel_axes=(0, 0, None)):
+    """
+    Creates my affininty matrix, v-mapped.
+
+    Inputs:
+    --------
+    arr_of_imgs (3d jnp array) : jnp array of imgs (a x b jnp arrays)
+    gamma (float) : parameterizing the pair_affinity_func
+    pair_affinity_func (func) : function which takes in 2 images, gamma, 
+        and outputs the affinity between the two images
+    pair_affinity_parallel_axes (tup) : see vmap for more info, the input axes 
+        which are being parallelized over. 
+
+    Returns: 
+    --------
+    arr (jnp array) : array of pair affinities, item i,j is the affinity 
+        between imgs i and j
+    """
+    n_imgs = len(arr_of_imgs)
+    v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
+    imgs_1, imgs_2 = zip(*list(combinations(arr_of_imgs,2)))
+    arr = jnp.zeros((n_imgs, n_imgs))
+    affinities = v_cPA(jnp.array(imgs_1), jnp.array(imgs_2), gamma)
+    arr = arr.at[jnp.triu_indices(arr.shape[0],k=1)].set(affinities)
+    arr = arr + arr.T
+    arr = arr + jnp.identity(n_imgs)
+    return arr
 
 
 def performClustering(affinities, n_clusters):
@@ -278,7 +313,7 @@ def slim_clustering_obj(gamma, images, n_clusters):
     Clustering given my gamma and params. This is what I want to minimize
     """
     gamma = softmax(jnp.array([gamma]))
-    affinities = affinityMatrix(images, gamma)
+    affinities = affinity_matrix(images, gamma)
     clusters = performClustering(affinities, n_clusters)
     clusters = clustering_to_cachable_labels(clusters)
     clusters = tuple(clusters)
@@ -467,7 +502,7 @@ def clustering_objective(gamma, images, n_clusters, img_names, \
     """
     t_s = time.time() #total
     a_s = time.time() #affininty
-    affinities = affinityMatrix(images, gamma)
+    affinities = affinity_matrix(images, gamma) #Use affinityMatrix prev
     a_e = time.time()
     c_s = time.time() #clustering
     clusters = performClustering(affinities, n_clusters)
@@ -977,7 +1012,7 @@ def compare_tv(num_clus=2, np_pts_per_clus=2):
 
         
 if __name__ == "__main__":
-    # affinityMatrix(images, gamma=0.1)
+    # affinityMatrix(images, gamma=0.1) #use[0] at end of calc pair aff
     basic_ex(use_new_data=True, n_cs=2, arraysPerCluster=50, graph_it=False, display_clusts=False,
              clustering_case='unconstrained', only1=True, solver='BFGS')
     #clustering_to_cachable_labels(clusters=jnp.array([0,0,1,1]))
