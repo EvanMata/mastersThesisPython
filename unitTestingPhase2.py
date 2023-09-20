@@ -241,15 +241,16 @@ def t_reverse_str(arr):
 
 
 def t_vmaped_mat_construction(arr_of_imgs, gamma=0.5):
-    def ez_mat_func(im1, im2, gamma):
+    def ez_mat_func(im1, im2, m_gamma):
         im = im1 + im2
-        val = gamma + jnp.sum(im)
+        val = m_gamma + jnp.sum(im)
         return val
-    #Set clustering func to take in dist func, and 2nd param of vmap
-    # Split into 2 funcs?
+    print(type(arr_of_imgs))
+    print(arr_of_imgs.shape)
     arr = clu.affinity_matrix(arr_of_imgs, gamma)
     print(arr)
     print()
+    """
     arr2 = clu.affinity_matrix(arr_of_imgs, gamma, 
                                  pair_affinity_func=clu.calcPairAffinity, 
                                  pair_affinity_parallel_axes=(0, 0, None))
@@ -259,6 +260,7 @@ def t_vmaped_mat_construction(arr_of_imgs, gamma=0.5):
                                  pair_affinity_func=ez_mat_func, 
                                  pair_affinity_parallel_axes=(0, 0, None))
     print(arr3)
+    """
     return arr
 
 
@@ -276,5 +278,5 @@ if __name__ == "__main__":
     #print(clustering_to_cachable_labels([1,1,0,0]))
     #t5_clustering_caches()
     #t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
-    arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]]])
+    arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]], [[3,1],[1,3]], [[1,0],[0,1]]])
     t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)

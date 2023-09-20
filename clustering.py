@@ -113,7 +113,7 @@ def calcPairAffinity(image1, image2, gamma):
 
 
 @partial(jax.jit, static_argnames=['pair_affinity_func', 'pair_affinity_parallel_axes'])
-def affinity_matrix(arr_of_imgs, gamma=0.5, \
+def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
                       pair_affinity_func=calcPairAffinity, 
                       pair_affinity_parallel_axes=(0, 0, None)):
                       #pair_affinity_func=ez_mat_func,
@@ -123,8 +123,8 @@ def affinity_matrix(arr_of_imgs, gamma=0.5, \
 
     Inputs:
     --------
-    arr_of_imgs (3d jnp array) : jnp array of imgs (a x b jnp arrays)
-    gamma (float) : parameterizing the pair_affinity_func
+    arr_of_imgs (3d lst of jnp array) : lst of imgs (a x b jnp arrays)
+    gamma (1d jnp array) : parameterizing the pair_affinity_func
     pair_affinity_func (func) : function which takes in 2 images, gamma, 
         and outputs the affinity between the two images
     pair_affinity_parallel_axes (tup) : see vmap for more info, the input axes 
@@ -135,12 +135,29 @@ def affinity_matrix(arr_of_imgs, gamma=0.5, \
     arr (jnp array) : array of pair affinities, item i,j is the affinity 
         between imgs i and j
     """
+    gamma = float(gamma.at[0])
+    arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
     imgs_1, imgs_2 = zip(*list(combinations(arr_of_imgs,2)))
     arr = jnp.zeros((n_imgs, n_imgs))
     affinities = v_cPA(jnp.array(imgs_1), jnp.array(imgs_2), gamma)
-    arr = arr.at[jnp.triu_indices(arr.shape[0],k=1)].set(affinities)
+
+    print()
+    print()
+    #print(len(jnp.triu_indices(arr.shape[0], k=1)))
+    #print(len(jnp.triu_indices(arr.shape[0], k=1)[0]))
+    print(gamma)
+    print(type(gamma))
+    print(type(arr_of_imgs))
+    print(arr_of_imgs.shape)
+    print(jnp.array(jnp.triu_indices(arr.shape[0], k=1)).shape)
+    print(affinities.shape)
+    print(jnp.triu_indices(arr.shape[0], k=1))
+    print()
+    print()
+
+    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
     arr = arr + arr.T
     arr = arr + jnp.identity(n_imgs)
     return arr
