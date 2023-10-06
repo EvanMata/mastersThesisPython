@@ -54,6 +54,11 @@ rawHoloNameS = holosFolderS.joinpath("Raw_Hologram_%s.bin")
 holosFolderS = str(holosFolderS)
 rawHoloNameS = str(rawHoloNameS)
 
+toposFolderS = smallSampPath.joinpath("Topography_Holograms")
+rawTopoNameS = toposFolderS.joinpath("Topography_Hologram_%s.bin")
+toposFolderS = str(toposFolderS)
+rawTopoNameS = str(rawTopoNameS)
+
 '''
 Paths for the FULL sample folders
 '''
@@ -76,6 +81,13 @@ holosFolderF = fullSampPath.joinpath("Raw_Holograms")
 rawHoloNameF = holosFolderF.joinpath("Raw_Hologram_%s.bin")
 holosFolderF = str(holosFolderF)
 rawHoloNameF = str(rawHoloNameF)
+
+toposFolderF = fullSampPath.joinpath("Topography_Holograms")
+rawTopoNameF = toposFolderF.joinpath("Topography_Hologram_%s.bin")
+toposFolderF = str(toposFolderF)
+rawTopoNameF = str(rawTopoNameF)
+
+calcedRawFolder = fullSampPath.joinpath("Coherent_Diffraction_Imaging", "Input_Holograms")
 
 '''
 Paths for Zenodo Files
@@ -101,3 +113,16 @@ holosFolderZ = zenodoPath.joinpath("Raw_Holograms")
 rawHoloNameZ = holosFolderZ.joinpath("Raw_Hologram_%s.bin")
 holosFolderZ = str(holosFolderZ)
 rawHoloNameZ = str(rawHoloNameZ)
+
+toposFolderZ = zenodoPath.joinpath("Topography_Holograms")
+rawTopoNameZ = toposFolderZ.joinpath("Topography_Hologram_%s.bin")
+toposFolderZ = str(toposFolderZ)
+rawTopoNameZ = str(rawTopoNameZ)
+
+
+"""
+Unique Paths
+"""
+
+modeMasks = fullSampPath.joinpath("Coherent_Diffraction_Imaging", "processed", 'masks')
+modeMasks = str(modeMasks)

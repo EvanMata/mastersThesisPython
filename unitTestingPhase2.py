@@ -11,9 +11,10 @@ import pathlib_variable_names as var_names
 from jax import random
 from pathlib import Path
 from itertools import combinations
+from numpy.core.umath_tests import inner1d
 
-sys.path.append('./python_provided_code/')
-from fth_reconstruction import reconstructCDI as my_fft
+#sys.path.append('./python_provided_code/')
+#from fth_reconstruction import reconstructCDI as my_fft
 
 
 def t_dPC_1():
@@ -154,7 +155,7 @@ def t_mode_is_avg(using_helicity=True, print_it=True, my_mode=' 1-1'):
         #print("MAX Val in constructed array: ", "{:e}".format(np.max(base_arr)))
         print("Minimum Difference: ", "{:e}".format(min(differences)))
 
-    avged_holo_arr = holo_arr / num_holos
+    avged_holo_arr = base_arr / num_holos
     return avged_holo_arr
 
 
@@ -269,14 +270,89 @@ def gen_random_uni_arr(my_shape=(1000,)):
     return random.uniform(key, shape=my_shape)
 
 
+def t_topo_holo(topo_num=1, pathtype='f'): #topo_num in [1,144]
+    # THIS IS NOT HOW TOPOS ARE GENERATED.
+    """
+    topo_num is the name of the topography hologram you're trying to make.
+    pathtype is where to load the holos from. Gotta be f otherwise incorrect holo_arr
+    """
+    differences = []
+    holo_nums = list(range(topo_num,28800,50))
+    holo_names = [str(n).zfill(5) for n in holo_nums]
+    base_arr = np.zeros((972, 960))
+    for holo_name in holo_names:
+        holo_arr = opn.openBaseHolo(holo_name, pathtype, proced=False, mask=False)
+        base_arr += holo_arr
+    
+    #Open each topo holo, see if base_arr is same as any of them.
+    for i in range(1,144+1):
+        topo_num = str(i).zfill(3)
+        topo_arr = opn.openTopo(topo_num, pathtype)
+        mag = np.abs(np.sum(topo_arr - base_arr))
+        print("Topo %i diff: "%i, "{:e}".format(mag))
+        differences.append(mag)
+
+    print("Minimum Difference: ", "{:e}".format(min(differences)))
+
+
+def t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False):
+    all_arrs = []
+    pos_differences = []
+    neg_differences = []
+    mode_i_names, topo_i_names = opn.grab_mode_items(my_mode, use_helicty=True, \
+                                       helicity=helicity, and_topos=True, pathtype='f')
+    topo_name_to_trace = dict()
+    topo_name_to_data = dict()
+    for i in range(len(mode_i_names)):
+        key = topo_i_names[i]
+        holo_name = mode_i_names[i].strip('.bin')
+        holoArr = opn.openBaseHolo(holo_name, pathtype='f', proced=False, mask=False)
+        if key in topo_name_to_trace:
+            tr = topo_name_to_trace[key]
+            topoArr = topo_name_to_data[key]
+        else:
+            topoArr = opn.openTopo(topoNumber=key, pathtype='f')
+            tr = np.sum(inner1d(topoArr, topoArr))
+            topo_name_to_trace[key] = tr
+            topo_name_to_data[key] = topoArr
+        alpha_num = np.sum(inner1d(topoArr, holoArr))
+        alpha = alpha_num / tr
+        p_k_prime = 2*alpha*topoArr - holoArr
+        all_arrs.append(p_k_prime)
+    
+    if useAvg:
+        calced_mode = sum(all_arrs)/len(all_arrs)
+    else:
+        calced_mode = sum(all_arrs)
+
+    pos_calced_pieces, neg_calced_pieces = opn.grab_calced_modes()
+    for i in range(len(pos_calced_pieces)):
+        piece = pos_calced_pieces[i]
+        mag = np.abs(np.sum(piece - calced_mode))
+        print("Pos Piece %i diff: "%i, "{:e}".format(mag))
+        pos_differences.append(mag)
+
+    for i in range(len(neg_calced_pieces)):
+        piece = neg_calced_pieces[i]
+        mag = np.abs(np.sum(piece - calced_mode))
+        print("Neg Piece %i diff: "%i, "{:e}".format(mag))
+        neg_differences.append(mag)
+
+    print("Minimum Pos Difference: ", "{:e}".format(min(pos_differences)))
+    print("Minimum Neg Difference: ", "{:e}".format(min(neg_differences)))
+
+
+
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
-    #t_mode_is_avg(using_helicity=True, print_it=True)
+    t_mode_is_avg(using_helicity=True, print_it=True)
     #visualize_fft()
     #print(clustering_to_cachable_labels([0,0,1,1]))
     #print(clustering_to_cachable_labels([1,1,0,0]))
     #t5_clustering_caches()
     #t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
-    arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]], [[3,1],[1,3]], [[1,0],[0,1]]])
-    t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)
+    #arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]], [[3,1],[1,3]], [[1,0],[0,1]]])
+    #t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)
+    #t_topo_holo(topo_num=1, pathtype='f')
+    #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=True)

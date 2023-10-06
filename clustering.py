@@ -87,7 +87,12 @@ def total_variation_norm(img):
 def jnp_array_from_str(jnp_array_str, old_shape):
     # Takes a jnp array string from jnp.array_str() and turns into a jnp array
     basic_parse = jnp_array_str.replace('[', "").replace(']', "")
-    my_array = jnp.fromstring(basic_parse, sep=' ').reshape(old_shape)
+    c = 1
+    #for i in old_shape:
+    #    c *= i
+    #new_arr = jnp.fromstring(basic_parse, sep=' ', count=c)
+    new_arr = jnp.fromstring(basic_parse, sep=' ')
+    my_array = new_arr.reshape(old_shape)
     return my_array
 
 
@@ -112,10 +117,11 @@ def calcPairAffinity(image1, image2, gamma):
     return jnp.exp(-gamma*diff)#[0] #USED FOR OLD AFF CON, NOT NEW.
 
 
-@partial(jax.jit, static_argnames=['pair_affinity_func', 'pair_affinity_parallel_axes'])
+#@partial(jax.jit, static_argnames=['pair_affinity_func', 'pair_affinity_parallel_axes', 'img_shape'])
 def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
                       pair_affinity_func=calcPairAffinity, 
-                      pair_affinity_parallel_axes=(0, 0, None)):
+                      pair_affinity_parallel_axes=(0, 0, None),
+                      img_shape=(100,100)):
                       #pair_affinity_func=ez_mat_func,
                       #pair_affinity_parallel_axes=(0, 0, None)):
     """
@@ -135,27 +141,32 @@ def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
     arr (jnp array) : array of pair affinities, item i,j is the affinity 
         between imgs i and j
     """
-    gamma = float(gamma.at[0])
+    #gamma = float(gamma.at[0])
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
     imgs_1, imgs_2 = zip(*list(combinations(arr_of_imgs,2)))
     arr = jnp.zeros((n_imgs, n_imgs))
     affinities = v_cPA(jnp.array(imgs_1), jnp.array(imgs_2), gamma)
+    affinities = affinities.reshape(-1)
 
+    
+    """
     print()
     print()
     #print(len(jnp.triu_indices(arr.shape[0], k=1)))
     #print(len(jnp.triu_indices(arr.shape[0], k=1)[0]))
-    print(gamma)
+    print("affinities: ", affinities)
+    print("Gamma:", gamma)
     print(type(gamma))
     print(type(arr_of_imgs))
     print(arr_of_imgs.shape)
     print(jnp.array(jnp.triu_indices(arr.shape[0], k=1)).shape)
-    print(affinities.shape)
+    print(affinities.shape) #size is tri size x 100 x 100... what are the last 2?
     print(jnp.triu_indices(arr.shape[0], k=1))
     print()
     print()
+    """
 
     arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
     arr = arr + arr.T
@@ -327,22 +338,50 @@ def distFromPureColor(image, pureColors=[0, 1], printIt=False):
 #Can't jit this bc. sklearn clustering is behind the hood trying to use numpy
 def slim_clustering_obj(gamma, images, n_clusters):
     """
-    Clustering given my gamma and params. This is what I want to minimize
+    Clustering given my gamma and params. This is what I want to minimize for 
+    a given gamma.
+
+    Inputs:
+    --------
+        gamma (float) : Gaussian Affinity Kernel param to test
+        images (lst of np arrays) : Set of images being clustered
+        n_clusters (int) : number of clusters to test 
+
+    Returns:
+    --------
+        total_metric_value (float) :  the sum of my metric value across each cluster
     """
-    gamma = softmax(jnp.array([gamma]))
-    affinities = affinity_matrix(images, gamma)
+    images = jnp.array(images)
+    gamma = jnp.array([gamma])
+    img_shape = images[0].shape
+    s1 = time.time()
+    affinities = affinity_matrix(images, gamma, img_shape=img_shape)
+    e1 = time.time()
+    print("Affinity Time: ", e1 - s1)
     clusters = performClustering(affinities, n_clusters)
+    e2 = time.time()
+    print("Clustering Time: ", e2 - e1)
     clusters = clustering_to_cachable_labels(clusters)
     clusters = tuple(clusters)
-    images_str = jnp.array_str(images) #Now Hashable
+    e3 = time.time()
+    print("Making Labels cachable: ", e3 - e2)
+    print("Images Shape: ", images.shape)
+    images_str = np.array2string(images, threshold=np.inf, precision=6) 
+    #EDIT - FEED ^ THIS INTO SLIM CLUS SO DON"T HAVE TO DO IT FOR DIFF ALPHAS, will needa 
+    # Adjust to make it a static argument
+    e4 = time.time()
+    print("Making Images Hashable: ", e4 - e3)
     total_metric_value, lambdas_dict = clustering_labels_cached(clusters, images_str, images.shape)
+    e5 = time.time()
+    print("Performing Convex Minimization: ", e5 - e4)
     #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
     return total_metric_value
 
 @lru_cache
 def clustering_labels_cached(clusters, images_str, imgs_shape):
     """
-    Finds the convex combo params and total metric value for a given clustering
+    Performs the convex combo minimization to find the convex combo params 
+    and total metric value for a given clustering.
     Does so in a memoized/cached manner to save on affinity paramaterization tuning
     time. 
 

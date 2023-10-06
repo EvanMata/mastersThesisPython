@@ -11,7 +11,7 @@ Python Dictionary for FTH reconstructions
 import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 import scipy.constants as cst
-from skimage.draw import disk as circle
+from skimage.draw import circle
 
 
 ###########################################################################################

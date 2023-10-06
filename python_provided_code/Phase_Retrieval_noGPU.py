@@ -156,7 +156,7 @@ def Error_diffract(guess, diffract):
     Error=10*np.log10(Error)
     return Error
 
-from skimage.draw import disk
+from skimage.draw import circle
 def FRC_GPU2(im1,im2,width_bin,center=0, start_Fourier=True):
     '''implements Fourier Ring Correlation. 
     RB June 2020 (https://www.nature.com/articles/s41467-019-11024-z)
@@ -189,10 +189,10 @@ def FRC_GPU2(im1,im2,width_bin,center=0, start_Fourier=True):
         FT2=np.fft.fftshift(np.fft.fft2(np.fft.fftshift(im2_cp)))
 
     for i in range(Num_bins):
-        yy_outer, xx_outer = disk((center[0], center[1]), (i+1)*width_bin)
-        yy_inner, xx_inner = disk((center[0], center[1]), i*width_bin)
+        yy_outer, xx_outer = circle((center[0], center[1]), (i+1)*width_bin)
+        yy_inner, xx_inner = circle((center[0], center[1]), i*width_bin)
         if i==0:
-            yy_inner, xx_inner = disk((center[0], center[1]), 1)
+            yy_inner, xx_inner = circle((center[0], center[1]), 1)
 
         outer=np.zeros((yy_outer.shape[0],2))
         outer[:,0]=xx_outer.copy()

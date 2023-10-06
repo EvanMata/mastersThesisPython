@@ -46,6 +46,23 @@ def openBaseHolo(holoNumber, pathtype='z', proced=False, mask=False):
     return holoArray
 
 
+def openTopo(topoNumber, pathtype='z'):
+    if pathtype == 'z':
+        my_path = my_new_vars.rawTopoNameZ % topoNumber
+    if pathtype.lower() == 's':
+        my_path = my_new_vars.rawTopoNameS % topoNumber
+    if pathtype.lower() == 'f':
+        my_path = my_new_vars.rawTopoNameF % topoNumber
+    dim_1 = 960
+    dim_2 = 972
+    with open(my_path, mode='rb') as file:
+        topo = file.read()
+
+    topoArray = np.frombuffer(topo, dtype="float64")
+    topoArray.resize((dim_2, dim_1))
+    return topoArray
+
+
 def heatMapImg(holoArray):
     plt.imshow(holoArray, cmap='hot', interpolation='none')
     plt.colorbar()
@@ -112,20 +129,81 @@ def parseDataTable(pathtype='z'):
     return df
 
 
-def grab_mode_items(my_mode=' 1-1', use_helicty=False, helicity=1):
+def grab_mode_items(my_mode=' 1-1', use_helicty=False, helicity=1, and_topos=False, pathtype='f'):
     '''
-    Returns a list of file numbers (eg '00001.bin') in mode the given mode,
-    eg mode ' 1-1'.
+    Returns a list of file numbers (eg '00001.bin') labeled with the given mode,
+    eg mode ' 1-1'. Can additionally return the topography holograms associated w. them
+
+    Inputs:
+    --------
+        my_mode (str) : name of the mode having its items processed
+        use_helicity (bool) : whether to grab all items, or only those with the given helicity
+        helicity (1|-1) : the helicity of the items to grab in the given mode.
+        and_topos (bool) : If true, also returns the names of the topography holograms associated 
+            with the given holograms
+        pathtype (f) : Indicates loading the data based of the full table - do Not change.
+
+    Returns:
+    --------
+        file_nums (lst of strs) : The numbers, w. .bin, of the holograms in the given mode
+        *topo_nums (lst of strs) : The numbers of the topography holograms associated w. the 
+                holograms
+        * -> sometimes returned
     '''
-    df = parseDataTable(pathtype='s')
-    if use_helicty:
-        df_mode_1 = df[(df[' Mode:'] == my_mode) & (df[' Helicitiy:'] == helicity)][' FileName:']
+    df = parseDataTable(pathtype)
+    if use_helicty and not and_topos:
+        df_mode_names = df[(df[' Mode:'] == my_mode) & (df[' Helicitiy:'] == helicity)]
+    elif not use_helicty and not and_topos:
+        df_mode_names = df[df[' Mode:'] == my_mode][' FileName:']
+    elif use_helicty and and_topos:
+        df_mode_names = df[(df[' Mode:'] == my_mode) & (df[' Helicitiy:'] == helicity)][' FileName:']
+        df_mode_topo_names = df[(df[' Mode:'] == my_mode) & (df[' Helicitiy:'] == helicity)][' Topography-Nr:']
     else:
-        df_mode_1 = df[df[' Mode:'] == my_mode][' FileName:']
-    file_nums = list(df_mode_1)
+        df_mode_names = df[df[' Mode:'] == my_mode][' FileName:']
+        df_mode_topo_names = df[df[' Mode:'] == my_mode][' Topography-Nr:']
+    file_nums = list(df_mode_names)
     file_nums = [f.strip() for f in file_nums]
+    if and_topos:
+        topo_nums = list(df_mode_topo_names)
+        topo_nums = [str(t).zfill(3) for t in topo_nums]
+        return file_nums, topo_nums
     return file_nums
 
+
+def grab_calced_modes():
+    dim_1 = 960
+    dim_2 = 972
+    pos_calced_pieces = []
+    neg_calced_pieces = []
+    rough_filename = my_new_vars.calcedRawFolder
+    mode_nums = list(range(1,72+1))
+    mode_nums = [str(m).zfill(2) for m in mode_nums]
+    
+    for mode_num in mode_nums:
+        mode_name = "Mode_" + mode_num
+        folder_path = rough_filename.joinpath(mode_name)
+
+        pos_path_name = "Pos_Holo_Calculated_Mode_%s.bin"%mode_num
+        pos_path = folder_path.joinpath(pos_path_name)
+        pos_path = str(pos_path)
+
+        neg_path_name = "Neg_Holo_Calculated_Mode_%s.bin"%mode_num
+        neg_path = folder_path.joinpath(neg_path_name)
+        neg_path = str(neg_path)
+
+        with open(pos_path, mode='rb') as file:
+            holo = file.read()
+            holoArray = np.frombuffer(holo, dtype="float64")
+            holoArray.resize((dim_2, dim_1))
+            pos_calced_pieces.append(holoArray)
+
+        with open(neg_path, mode='rb') as file:
+            holo = file.read()
+            holoArray = np.frombuffer(holo, dtype="float64")
+            holoArray.resize((dim_2, dim_1))
+            neg_calced_pieces.append(holoArray)
+
+    return pos_calced_pieces, neg_calced_pieces
 
 def yield_mode_pieces():
     '''
@@ -143,6 +221,39 @@ def yield_mode_pieces():
         mode_pos_holo = np.fromfile(str(filename))
         mode_pos_holo.resize((972, 960))
         yield mode_pos_holo
+
+
+def open_and_combine_pieces(my_mode, helicity, avg=True):
+    """
+    Returns the avg (or sum) of the holograms labeled with the given mode.
+
+    Inputs:
+    --------
+        my_mode (str) : Name of the mode label in Claudio's data
+        helicity (1|-1) : The helicity of the images to be loaded
+        avg (bool) : If true, returns the avg of the holos in the mode, 
+                        if false returns their sum
+
+    Returns: 
+    --------
+        out_arr (np array) : Array of the ~mode
+    """
+    pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=1)
+    num_holos = 0
+    base_arr = np.zeros((972, 960))
+    raw_path = my_vars.rawHoloNameF
+    for holo_name in pieces:
+        holoNumber = holo_name.strip(".bin")
+        holo_arr = openBaseHolo(holoNumber, pathtype='f', proced=False, mask=False)
+        base_arr += holo_arr
+        num_holos += 1
+
+    if avg:
+        out_arr = base_arr / num_holos
+    else:
+        out_arr = base_arr
+    return out_arr
+
 
 
 if __name__ == "__main__":
