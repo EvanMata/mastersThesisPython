@@ -241,7 +241,7 @@ def open_and_combine_pieces(my_mode, helicity, avg=True):
     --------
         out_arr (np array) : Array of the ~mode
     """
-    pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=1)
+    pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=helicity)
     num_holos = 0
     base_arr = np.zeros((972, 960))
     raw_path = my_new_vars.rawHoloNameF

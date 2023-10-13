@@ -112,7 +112,7 @@ def get_mask_pixel(folder_masks):
 
 def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped, 
                                roi_array, mode=1, crop=82, bs_diam=58,
-                               experimental_setup = {}):
+                               experimental_setup = {}, use_PhRt=False):
     """
     Attempts to use the same processing but without the phase retrieval algorithm
 
@@ -129,7 +129,6 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
         bs_diam (int) : Size of the beamstop used
     
     """
-
     # GET RID OF OFFSET (and renormalize images)
     pos2, neg2, _=fth.load_both_RB(pos,neg, crop=50, auto_factor=0.5)
 
@@ -189,38 +188,50 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
     # from the second mode onwards,we use the result of mode 1 as a starting guess, after normalizing it by the intensity of the mode to reconstruct
     if mode==2:
         #temp=retrieved_p.copy()
-        a=5
+        print()
         print("NOT IMPLEMENTED")
+        print()
     if mode>=2:
         #Startimage=temp*np.sqrt(np.sum(pos_cropped*(1-bsmask_p))/np.sum(np.abs(temp)**2*(1-bsmask_p)))
-        a=5
+        print()
         print("NOT IMPLEMENTED")
-    """
+        print()
+    
     ############################### start the phase retrieval process
     # fully coherent phase retrieval
 
+    if use_PhRt:
     # positive helicity - 700 RAAR
-    retrieved_p=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(pos_cropped,np.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='mine',
-                    beta_zero=0.5, Nit=700, beta_mode='arctan',Phase=Startimage, bsmask=bsmask_p,average_img=30, Fourier_last=True)
-    # positive helicity - 50 ER
-    retrieved_p=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(pos_cropped,np.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='ER',
-                    beta_zero=0.5, Nit=50, beta_mode='const',
-                    Phase=retrieved_p, bsmask=bsmask_p,average_img=30, Fourier_last=True)
-    # negative helicity - 50 ER
-    retrieved_n=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(neg_cropped,np.zeros(neg_cropped.shape))), mask=supportmask_cropped, mode='ER',
-                    beta_zero=0.5, Nit=50, beta_mode='const',
-                    Phase=retrieved_p, bsmask=bsmask_n,average_img=30, Fourier_last=True)
-    """
+        retrieved_p=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(pos_cropped,np.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='mine',
+                        beta_zero=0.5, Nit=700, beta_mode='arctan',Phase=Startimage, bsmask=bsmask_p,average_img=30, Fourier_last=True)
+        # positive helicity - 50 ER
+        retrieved_p=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(pos_cropped,np.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='ER',
+                        beta_zero=0.5, Nit=50, beta_mode='const',
+                        Phase=retrieved_p, bsmask=bsmask_p,average_img=30, Fourier_last=True)
+        # negative helicity - 50 ER
+        retrieved_n=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(neg_cropped,np.zeros(neg_cropped.shape))), mask=supportmask_cropped, mode='ER',
+                        beta_zero=0.5, Nit=50, beta_mode='const',
+                        Phase=retrieved_p, bsmask=bsmask_n,average_img=30, Fourier_last=True)
 
-    """
-    retrieved_p = jnp.fft.ifft(jnp.fft.ifftshift(pos_cropped)) 
-    retrieved_n = jnp.fft.ifft(jnp.fft.ifftshift(neg_cropped))
-    """
+    else:
+        retrieved_p = jnp.fft.ifft(jnp.fft.ifftshift(pos_cropped)) 
+        retrieved_n = jnp.fft.ifft(jnp.fft.ifftshift(neg_cropped))
     #^ Just what I think should be the easiest realspace reconstructions
 
     #focus and reconstruct images into real space
     image_p = fth.reconstructCDI(fth.propagate(retrieved_p, prop_dist*1e-6, experimental_setup))[roi_cropped]
     image_n = fth.reconstructCDI(fth.propagate(retrieved_n, prop_dist*1e-6, experimental_setup))[roi_cropped]
+    print()
+    print("IMAGE P: ", image_p)
+    print()
+    print("IMAGE N: ", image_n)
+
+    ############################################
+    # THE FOLLOWING LINES WILL DIVIDE BY NONE? #
+    #     THOUGH NONE's ARE LATER SET TO 0     #
+    ############################################
+    np.seterr(divide='ignore', invalid='ignore')
+    
     # let's consider only pixels inside the supportmask for plotting
     image_p[supportmask_cropped[roi_cropped]==0]=None
     image_n[supportmask_cropped[roi_cropped]==0]=None
@@ -229,6 +240,8 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
     recon = (image_p-image_n)/(image_p+image_n)* np.exp(1j*phase)
     recon = np.real(recon)
     recon[np.isnan(recon)] = 0
+    print()
+    print("RECONSTRUCTION: ", recon)
     recon = np.fliplr(np.flipud(recon))
     fig, ax = plt.subplots()
     vmi, vma = np.percentile(recon,[1,99])
@@ -253,4 +266,5 @@ if __name__ == "__main__":
     supportmask_cropped, mask_pixel_raw = get_mask_pixel(folder_masks)
     make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped, 
                                roi_array, mode=1, crop=82, bs_diam=58,
-                               experimental_setup = experimental_setup)
+                               experimental_setup = experimental_setup,
+                               use_PhRt=True)
