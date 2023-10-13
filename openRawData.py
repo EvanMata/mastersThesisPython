@@ -121,11 +121,14 @@ def openAdjMatrix(adjMatrixFolder, reduce=True, downTo=1000):
 def parseDataTable(pathtype='z'):
     if pathtype.lower().strip() == 'z':
         dataTablePath = my_new_vars.dataTablePathZ
+        skiprows = 9
     elif pathtype.lower().strip() == 'f':
         dataTablePath = my_new_vars.dataTablePathF
+        skiprows = 9
     else:
         dataTablePath = my_new_vars.dataTablePathS
-    df = pd.read_csv(dataTablePath, delimiter='\t', skiprows=9, index_col=False)
+        skiprows = 9
+    df = pd.read_csv(dataTablePath, delimiter='\t', skiprows=skiprows, index_col=False)
     return df
 
 
@@ -152,7 +155,7 @@ def grab_mode_items(my_mode=' 1-1', use_helicty=False, helicity=1, and_topos=Fal
     '''
     df = parseDataTable(pathtype)
     if use_helicty and not and_topos:
-        df_mode_names = df[(df[' Mode:'] == my_mode) & (df[' Helicitiy:'] == helicity)]
+        df_mode_names = df[(df[' Mode:'] == my_mode) & (df[' Helicitiy:'] == helicity)][' FileName:']
     elif not use_helicty and not and_topos:
         df_mode_names = df[df[' Mode:'] == my_mode][' FileName:']
     elif use_helicty and and_topos:
@@ -241,7 +244,7 @@ def open_and_combine_pieces(my_mode, helicity, avg=True):
     pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=1)
     num_holos = 0
     base_arr = np.zeros((972, 960))
-    raw_path = my_vars.rawHoloNameF
+    raw_path = my_new_vars.rawHoloNameF
     for holo_name in pieces:
         holoNumber = holo_name.strip(".bin")
         holo_arr = openBaseHolo(holoNumber, pathtype='f', proced=False, mask=False)
@@ -259,6 +262,5 @@ def open_and_combine_pieces(my_mode, helicity, avg=True):
 if __name__ == "__main__":
     #openAllSynthData(n_clus=3, n_pts=3, disply=True)
     df = parseDataTable()
-    print(df[' Helicitiy:'])
     #print(len(set(df[' Mode:']))) #There are 73 different modes, including " Not assigned"
     print(grab_mode_items(use_helicty=True))

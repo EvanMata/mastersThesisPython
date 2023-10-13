@@ -125,4 +125,3 @@ Unique Paths
 """
 
 modeMasks = fullSampPath.joinpath("Coherent_Diffraction_Imaging", "processed", 'masks')
-modeMasks = str(modeMasks)

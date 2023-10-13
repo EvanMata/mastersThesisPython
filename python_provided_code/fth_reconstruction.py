@@ -82,7 +82,7 @@ def reconstructCDI(image):
 
 def integer(n):
     '''return the rounded integer (if you cast a number as int, it will floor the number)'''
-    return np.int(np.round(n))
+    return int(np.round(n))
 
 def set_center(image, center):
     '''

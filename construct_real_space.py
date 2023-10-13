@@ -23,6 +23,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from skimage.draw import circle
 
+import pathlib
 import openRawData as opn
 import pathlib_variable_names as my_vars
 
@@ -72,6 +73,10 @@ bs_diam=58
 crop=82
 
 
+def proc_p(folder_masks, additional_path):
+    return str(folder_masks.joinpath(additional_path))
+
+
 def get_mask_pixel(folder_masks):
     """
     Gets the masks
@@ -89,19 +94,19 @@ def get_mask_pixel(folder_masks):
 
     # import mask for defective pixels- mask_pixel_raw is 1 where the pixels have to be ignored
 
-    mask_pixel_raw = imageio.imread(folder_masks+'mask_pixel_paint.png')[:,:,0]==255
-    mask_pixel_raw += imageio.imread(folder_masks+'mask_pixel2_paint.png')[:,:,0]==255
-    mask_pixel_raw += imageio.imread(folder_masks+'mask_pixel3_paint.png')[:,:,0]==255
-    mask_pixel_raw += imageio.imread(folder_masks+'mask_pixel4_paint.png')[:,:,0]==255
+    mask_pixel_raw = imageio.imread(proc_p(folder_masks, 'mask_pixel_paint.png'))[:,:,0]==255
+    mask_pixel_raw = imageio.imread(proc_p(folder_masks, 'mask_pixel2_paint.png'))[:,:,0]==255
+    mask_pixel_raw = imageio.imread(proc_p(folder_masks, 'mask_pixel3_paint.png'))[:,:,0]==255
+    mask_pixel_raw = imageio.imread(proc_p(folder_masks, 'mask_pixel4_paint.png'))[:,:,0]==255
 
     mask_pixel_raw=np.minimum(mask_pixel_raw, np.ones(mask_pixel_raw.shape))
 
     # import supportmask for phase retrieval
-    supportmask_cropped = imageio.imread(folder_masks+'supportmask_cropped.png')[:,:,0]==255
+    supportmask_cropped = imageio.imread(proc_p(folder_masks, 'supportmask_cropped.png'))[:,:,0]==255
     supportmask_cropped = np.minimum(supportmask_cropped, np.ones(supportmask_cropped.shape))
     # add a reference aperture at the center of the hologram
     radius=3
-    yy,xx=circle((supportmask_cropped.shape[0]//2,supportmask_cropped.shape[0]//2),radius)
+    yy,xx=circle(supportmask_cropped.shape[0]//2,supportmask_cropped.shape[0]//2,radius)
     supportmask_cropped[yy,xx]=1
     return supportmask_cropped, mask_pixel_raw
 
@@ -154,7 +159,7 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
     #get rid of any remaining offset
     mask_rect=np.zeros(pos_cropped.shape)
     N=10
-    yy,xx=circle((pos_cropped.shape[0]//2,pos_cropped.shape[0]//2),pos_cropped.shape[0]*(N-1)/N*0.5)
+    yy,xx=circle(pos_cropped.shape[0]//2,pos_cropped.shape[0]//2,pos_cropped.shape[0]*(N-1)/N*0.5)
     mask_rect[yy,xx]=1
     mask_rect[mask_pixel_cropped==1]=1
 
@@ -164,7 +169,7 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
 
 
     # define an artificial beamstop
-    yy,xx = circle((pos_cropped.shape[0]//2, pos_cropped.shape[1]//2+2), bs_diam//2)
+    yy,xx = circle(pos_cropped.shape[0]//2, pos_cropped.shape[1]//2+2, bs_diam//2)
 
     # pixels to mask during phase retrieval
     bsmask_p=mask_pixel_cropped.copy()
