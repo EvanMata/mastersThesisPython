@@ -75,10 +75,8 @@ def total_variation_norm(img):
     img = norm_01(img)
     x_diffs = np.abs(img[:,1:] - img[:,:-1])
     y_diffs = np.abs(img[1:,:] - img[:-1,:])
-    print(x_diffs)
-    print(y_diffs)
     tot = np.sum(x_diffs) + np.sum(y_diffs)
-    #NORM FACTOR NOT CORRECT
+    #NORM FACTOR NOT CORRECT?
     norm_factor = (img.shape[0] - 1)*(img.shape[1] - 1)
     tv_dist = tot / norm_factor
     return tv_dist
@@ -262,7 +260,7 @@ def rounder(values):
     def f(x):
         idx = jnp.argmin(jnp.abs(values - x))
         return values[idx]
-    return jnp.frompyfunc(f, 1, 1)
+    return jnp.frompyfunc(f,  1, 1)
 
 
 def distFromPureColor(image, pureColors=[0, 1], printIt=False):

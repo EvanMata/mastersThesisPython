@@ -27,6 +27,8 @@ import pathlib
 import openRawData as opn
 import pathlib_variable_names as my_vars
 
+from numpy.core.umath_tests import inner1d
+
 def plot_amenities(what_to_plot,cbar_label, image, recon, colormap, colorbar_lim, mi, ma):
     fig, ax = plt.subplots(1,2, frameon = False, figsize = (12,5))
     cax=ax[0].imshow(recon, cmap = colormap, vmin=mi, vmax=ma)
@@ -110,11 +112,120 @@ def get_mask_pixel(folder_masks):
     supportmask_cropped[yy,xx]=1
     return supportmask_cropped, mask_pixel_raw
 
-def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped, 
-                               roi_array, mode=1, crop=82, bs_diam=58,
-                               experimental_setup = {}, use_PhRt=False):
+
+def create_diff_piece(my_mode=' 1-1', mode_i_names=[], topo_i_names=[]):
     """
-    Attempts to use the same processing but without the phase retrieval algorithm
+    Calculates the Difference Hologram for the given mode, which 
+    we know will NOT be correct bc. the calculations for the calculated
+    positive and negative pieces are not the exact same.
+
+    Inputs:
+    --------
+
+    
+    Returns:
+    --------
+        diff_piece (np.array) : Array of difference hologram for the given mode
+    """
+    #PLACEHOLDER
+
+
+def create_calculated_pieces(my_mode=' 1-1', helicity=1, useAvg=False,
+                             mode_i_names=[], topo_i_names=[]):
+    """
+    Runs what I understand to be the calculation for the positive & negative helicity 
+    calculated mode pieces; however we know these do NOT line up with the actual results
+
+    Math being performed:
+    mode_calculated = 0
+    for each hologram h
+        grab its associated topography hologram topo_h (out of 144)
+        alpha_h = tr(topo_h, holo_h) / tr(topo_h, topo_h)
+        p_k_prime_h = 2*alpha_h*topo_h  -  holo_h 
+        mode_calculated += p_k_prime_h
+    if avg:
+        mode_calculated / h
+        
+    Where p_k_prime_h can represent the positie or negative calculated helicity piece,
+    depending on the input helicity. The topography hologram that corresponds to the 
+    given hologram is provided by the log data
+
+    Inputs
+    --------
+        my_mode (str) : The mode's data from the log is being used 
+                        to generate the calc'd piece
+        helicity (1|-1) : the helicity of the relevant pieces/determines which
+                        holograms of the mode will be used
+        useAvg (bool) : Determines whether to use the avg or sum of all the p_k_prime's
+                        Documentation indicates sum is correct
+        mode_i_names (lst of strs) : Names of Holograms in mode i to open, 
+                        MUST BE INDEXED THE SAME AS topo_i_names
+        topo_i_names (lst of strs) : Names of Topography Holographs corresponding to 
+                        modes to be opened. MUST BE INDEXED THE SAME AS mode_i_names
+
+    Returns
+    --------
+        calced_mode (numpy array) : Calculated mode piece, with the helicity 
+                corresponding to the input helicity
+    """
+
+    all_arrs = []
+    topo_name_to_trace = dict()
+    topo_name_to_data = dict()
+    for i in range(len(mode_i_names)):
+        key = topo_i_names[i]
+        holo_name = mode_i_names[i].strip('.bin')
+        holoArr = opn.openBaseHolo(holo_name, pathtype='f', proced=False, mask=False)
+        if key in topo_name_to_trace:
+            tr = topo_name_to_trace[key]
+            topoArr = topo_name_to_data[key]
+        else:
+            topoArr = opn.openTopo(topoNumber=key, pathtype='f')
+            tr = np.sum(inner1d(topoArr, topoArr))
+            topo_name_to_trace[key] = tr
+            topo_name_to_data[key] = topoArr
+        alpha_num = np.sum(inner1d(topoArr, holoArr))
+        alpha = alpha_num / tr
+        p_k_prime = 2*alpha*topoArr - holoArr #Same formula for both p_k_prime and n_k_prime
+        all_arrs.append(p_k_prime)
+    
+    if useAvg:
+        calced_mode = sum(all_arrs)/len(all_arrs)
+    else:
+        calced_mode = sum(all_arrs)
+    return calced_mode
+
+
+def pre_gen_d_calculated_pieces(my_mode=' 1-1', helicity=1, useAvg=False):
+    """
+    Same as create_calculated_pieces, but instead of calculating from scratch, 
+    Uses the previous clustering job's data.
+    """
+
+    mode_i_names, topo_i_names = opn.grab_mode_items(my_mode, use_helicty=True, \
+                                       helicity=helicity, and_topos=True, pathtype='f')
+    calced_mode = create_calculated_pieces(my_mode, helicity, useAvg,
+                             mode_i_names, topo_i_names)
+    return calced_mode
+
+
+def pre_gen_d_calculated_diff(my_mode=' 1-1'):
+    #PLACEHOLDER
+    mode_i_names, topo_i_names = opn.grab_mode_items(my_mode, use_helicty=False, \
+                                       helicity=1, and_topos=True, pathtype='f')
+    calced_diff = create_diff_piece(my_mode, mode_i_names, topo_i_names)
+    return calced_diff
+
+
+def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped, 
+                               roi_array, mode=1, crop=82, bs_diam=58,
+                               experimental_setup = {}, use_PhRt=True):
+    """
+    Attempts to use the same processing pipeline as the paper, assuming 
+    pos and neg are pre-calculated. Depending on what function is used with 
+    this function, they may be different inputs than the pipeline would assume
+    (eg not created with the calculated pieces and different holos, just the 
+    basic sums).
 
     Inputs:
     --------
@@ -129,6 +240,25 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
         bs_diam (int) : Size of the beamstop used
     
     """
+
+    ######################################
+    # POS & NEG REPLACES: ORIGINAL BELOW #
+    ######################################
+
+    """
+    #load pos and neg helicity images and their "calculated" opposite helicity counterparts. Sum all of them up to obtain a topography image
+    topo = (np.fromfile(folder+folder_mode+"Pos_Holo_Original_Mode_%02d.bin"%mode) + np.fromfile(folder+folder_mode+"Neg_Holo_Original_Mode_%02d.bin"%mode) + np.fromfile(folder+folder_mode+"Pos_Holo_Calculated_Mode_%02d.bin"%mode) + np.fromfile(folder+folder_mode+"Neg_Holo_Calculated_Mode_%02d.bin"%mode) ).reshape(shape)
+    
+    #load the difference image
+    diff = (np.fromfile(folder+folder_mode+"Diff_Holo_Mode_%02d.bin"%mode)).reshape(shape)
+
+    #define the pos/neg helicity images by adding/subtracting the known difference.
+    pos  = ( topo + diff ) / 2
+    neg  = ( topo - diff ) / 2
+    """
+
+
+
     # GET RID OF OFFSET (and renormalize images)
     pos2, neg2, _=fth.load_both_RB(pos,neg, crop=50, auto_factor=0.5)
 
@@ -247,24 +377,58 @@ def make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped,
     vmi, vma = np.percentile(recon,[1,99])
     m = ax.imshow(recon, vmin = vmi, vmax = vma, cmap = 'gray')
     plt.savefig('test_img', bbox_inches='tight', transparent = False)
-    #plt.show()
 
 
-
-
-def construct_pieces(my_mode=' 1-1', avg=True):
-    pos = opn.open_and_combine_pieces(my_mode, helicity=1, avg=avg)
-    neg = opn.open_and_combine_pieces(my_mode, helicity=-1, avg=avg)
+def pre_gen_d_construct_pieces(my_mode=' 1-1', avg=True):
+    """
+    Return the calculated pos & neg mode piece 
+    """
+    pos = opn.pre_gen_d_open_and_combine_pieces(my_mode, helicity=1, avg=avg)
+    neg = opn.pre_gen_d_open_and_combine_pieces(my_mode, helicity=-1, avg=avg)
     return pos, neg
+
+
+def pre_gen_d_calc_pos_neg_using_diff(my_mode=' 1-1', avg=False):
+    """
+    Use the pre-calculated clustering to calculate my pieces for the visualization
+
+    Inputs:
+    --------
+        my_mode (str) : name of mode in the log file.
+
+    Returns:
+    --------
+        main_pos (np.array) : Hologram positive piece for feeding into visualize_mode, 
+                            As the documentation describes how to calculate it 
+                            (DOES NOT AGREE WITH ACTUAL PRE-GEN'D PIECE)
+        main_pos (np.array) : Hologram negative piece for feeding into visualize_mode, 
+                            As the documentation describes how to calculate it 
+                            (DOES NOT AGREE WITH ACTUAL PRE-GEN'D PIECE)
+    """
+    pos, neg = pre_gen_d_construct_pieces(my_mode, avg)
+    pos_calc = pre_gen_d_calculated_pieces(my_mode, helicity=1, useAvg=avg)
+    neg_calc = pre_gen_d_calculated_pieces(my_mode, helicity=-1, useAvg=avg)
+    diff = pre_gen_d_calculated_diff(my_mode)
+    pos_negs_sum = np.sum(pos, neg, pos_calc, neg_calc)
+    main_pos = ( pos_negs_sum + diff ) / 2
+    main_neg = ( pos_negs_sum - diff ) / 2
+    return main_pos, main_neg
 
 
 if __name__ == "__main__":
     folder_masks = my_vars.modeMasks
-    pos, neg = construct_pieces(my_mode=' 1-1', avg=True)
+    pos, neg = pre_gen_d_construct_pieces(my_mode=' 1-1', avg=True)
     roi_array = roi_array=np.array([343, 403, 490, 547])
     experimental_setup = {'ccd_dist': 18e-2, 'energy': 779.5, 'px_size' : 20e-6}
     supportmask_cropped, mask_pixel_raw = get_mask_pixel(folder_masks)
-    make_pieces_no_p_retrieval(pos, neg, mask_pixel_raw, supportmask_cropped, 
+    visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped, 
                                roi_array, mode=1, crop=82, bs_diam=58,
                                experimental_setup = experimental_setup,
                                use_PhRt=True)
+    
+    """
+    TO DO: 
+    - Write a func that calcs the diff pieces, then calc the relevant stuff to feed into 
+    visualize_mode and see how the results differ
+    - Check basic pos & neg visualization w. and w.o avg on (seem to have only done w. avg)
+    """

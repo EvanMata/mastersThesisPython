@@ -174,6 +174,10 @@ def grab_mode_items(my_mode=' 1-1', use_helicty=False, helicity=1, and_topos=Fal
 
 
 def grab_calced_modes():
+    """
+    Returns 2 lists of numpy arrays of opened pre-generated 
+    pos & neg calculated mode pieces.
+    """
     dim_1 = 960
     dim_2 = 972
     pos_calced_pieces = []
@@ -226,22 +230,20 @@ def yield_mode_pieces():
         yield mode_pos_holo
 
 
-def open_and_combine_pieces(my_mode, helicity, avg=True):
+def open_and_combine_pieces(pieces, avg=True):
     """
     Returns the avg (or sum) of the holograms labeled with the given mode.
 
     Inputs:
     --------
-        my_mode (str) : Name of the mode label in Claudio's data
-        helicity (1|-1) : The helicity of the images to be loaded
+        pieces (lst of strs) : The numbers, w. .bin, of the holograms in the given mode
         avg (bool) : If true, returns the avg of the holos in the mode, 
-                        if false returns their sum
+                     If false returns their sum
 
     Returns: 
     --------
         out_arr (np array) : Array of the ~mode
     """
-    pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=helicity)
     num_holos = 0
     base_arr = np.zeros((972, 960))
     raw_path = my_new_vars.rawHoloNameF
@@ -258,6 +260,25 @@ def open_and_combine_pieces(my_mode, helicity, avg=True):
     return out_arr
 
 
+def pre_gen_d_open_and_combine_pieces(my_mode, helicity, avg=False):
+    """
+    Returns the avg (or sum) of the holograms labeled with the given mode 
+    in the pre-generated data. Basically run open_and_combine_pieces on 
+    provided data
+
+    Inputs:
+    --------
+        my_mode (str) : Name of the mode label in Claudio's data
+        helicity (1|-1) : The helicity of the images to be loaded
+        avg (bool) : If true, returns the avg of the holos in the mode, 
+                        if false returns their sum
+
+    Returns: 
+    --------
+        out_arr (np array) : Array of the ~mode
+    """
+    pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=helicity, and_topos=False)
+    return open_and_combine_pieces(pieces, avg)
 
 if __name__ == "__main__":
     #openAllSynthData(n_clus=3, n_pts=3, disply=True)

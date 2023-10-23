@@ -6,12 +6,12 @@ import numpy as np
 import jax.numpy as jnp
 import clustering as clu
 import openRawData as opn
+import construct_real_space as con
 import pathlib_variable_names as var_names
 
 from jax import random
 from pathlib import Path
 from itertools import combinations
-from numpy.core.umath_tests import inner1d
 
 #sys.path.append('./python_provided_code/')
 #from fth_reconstruction import reconstructCDI as my_fft
@@ -124,7 +124,7 @@ def t_dTV_1():
 
 def t_mode_is_avg(using_helicity=True, print_it=True, my_mode=' 1-1'):
     """
-    Check whether the avg of all the holos in mode 1-1 is actually 
+    Check whether the sum of all the holos in mode 1-1 is actually 
     the positive holo of any of the modes
 
     3 folders w. 1 img per holo: base/raw holos, Diff Holos Flattened, Diff Holos Ref Filtered
@@ -142,7 +142,7 @@ def t_mode_is_avg(using_helicity=True, print_it=True, my_mode=' 1-1'):
     raw_path = var_names.rawHoloNameS
     for holo_name in mode_0_names:
         holoNumber = holo_name.strip(".bin")
-        holo_arr = opn.openBaseHolo(holoNumber, pathtype='s', proced=False, mask=False)
+        holo_arr = opn.openBaseHolo(holoNumber, pathtype='f', proced=False, mask=False)
         base_arr += holo_arr
         num_holos += 1
 
@@ -155,8 +155,7 @@ def t_mode_is_avg(using_helicity=True, print_it=True, my_mode=' 1-1'):
         #print("MAX Val in constructed array: ", "{:e}".format(np.max(base_arr)))
         print("Minimum Difference: ", "{:e}".format(min(differences)))
 
-    avged_holo_arr = base_arr / num_holos
-    return avged_holo_arr
+    return base_arr
 
 
 def visualize_fft(my_mode=' 1-1', using_helicity=True):
@@ -296,34 +295,19 @@ def t_topo_holo(topo_num=1, pathtype='f'): #topo_num in [1,144]
 
 
 def t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False):
-    all_arrs = []
+    """
+    Tests if the calculated piece actually lines up with any of the calculated pieces, 
+    and gives me a relative sense of how much its different by for the minimum 
+    relative to all of the pieces.
+
+    Math being performed:
+    for each hologram, grab its associated topography hologram
+    Then calculate alpha = tr(topo, holo) / tr(topo, topo)    
+    """
+
     pos_differences = []
     neg_differences = []
-    mode_i_names, topo_i_names = opn.grab_mode_items(my_mode, use_helicty=True, \
-                                       helicity=helicity, and_topos=True, pathtype='f')
-    topo_name_to_trace = dict()
-    topo_name_to_data = dict()
-    for i in range(len(mode_i_names)):
-        key = topo_i_names[i]
-        holo_name = mode_i_names[i].strip('.bin')
-        holoArr = opn.openBaseHolo(holo_name, pathtype='f', proced=False, mask=False)
-        if key in topo_name_to_trace:
-            tr = topo_name_to_trace[key]
-            topoArr = topo_name_to_data[key]
-        else:
-            topoArr = opn.openTopo(topoNumber=key, pathtype='f')
-            tr = np.sum(inner1d(topoArr, topoArr))
-            topo_name_to_trace[key] = tr
-            topo_name_to_data[key] = topoArr
-        alpha_num = np.sum(inner1d(topoArr, holoArr))
-        alpha = alpha_num / tr
-        p_k_prime = 2*alpha*topoArr - holoArr
-        all_arrs.append(p_k_prime)
-    
-    if useAvg:
-        calced_mode = sum(all_arrs)/len(all_arrs)
-    else:
-        calced_mode = sum(all_arrs)
+    calced_mode = con.pre_gen_d_calculated_pieces(my_mode, helicity, useAvg)
 
     pos_calced_pieces, neg_calced_pieces = opn.grab_calced_modes()
     for i in range(len(pos_calced_pieces)):
@@ -346,7 +330,7 @@ def t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False):
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
-    t_mode_is_avg(using_helicity=True, print_it=True)
+    #t_mode_is_avg(using_helicity=True, print_it=True)
     #visualize_fft()
     #print(clustering_to_cachable_labels([0,0,1,1]))
     #print(clustering_to_cachable_labels([1,1,0,0]))
@@ -356,3 +340,4 @@ if __name__ == "__main__":
     #t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)
     #t_topo_holo(topo_num=1, pathtype='f')
     #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=True)
+    t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False)
