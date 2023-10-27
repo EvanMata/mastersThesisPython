@@ -6,8 +6,10 @@ import numpy as np
 import jax.numpy as jnp
 import clustering as clu
 import openRawData as opn
-import construct_real_space as con
+#import construct_real_space as con
+import genRealisticData as genR
 import pathlib_variable_names as var_names
+import matplotlib.pyplot as plt
 
 from jax import random
 from pathlib import Path
@@ -326,6 +328,18 @@ def t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False):
     print("Minimum Neg Difference: ", "{:e}".format(min(neg_differences)))
 
 
+def t_orb(center_on_edge=False):
+    array_shape = (100,100)
+    base_canvas = jnp.zeros(array_shape)
+    corner = jnp.array([100,100])
+    diam = 10
+    if center_on_edge:
+        corner = corner - int(diam/2)
+    orb_coords = genR.get_orb_pts(array_shape, corner, diam)
+    xs_orb, ys_orb = zip(*orb_coords)
+    base_canvas = base_canvas.at[xs_orb, ys_orb].set(1)
+    plt.imshow(base_canvas, cmap='hot', interpolation='nearest')
+    plt.show()
 
 if __name__ == "__main__":
     #t_dPC_5()
@@ -340,4 +354,5 @@ if __name__ == "__main__":
     #t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)
     #t_topo_holo(topo_num=1, pathtype='f')
     #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=True)
-    t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False)
+    #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False)
+    t_orb(center_on_edge=True)
