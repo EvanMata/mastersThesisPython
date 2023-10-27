@@ -9,6 +9,7 @@ Python Dictionary for FTH reconstructions
 """
 
 import numpy as np
+import jax.numpy as jnp
 from scipy.ndimage.filters import gaussian_filter
 import scipy.constants as cst
 from skimage.draw import circle
@@ -34,19 +35,19 @@ def load_both_RB(pos, neg,crop=0, auto_factor=True):
     size = pos.shape
     if auto_factor:
         if crop==0:
-            offset_pos = (np.mean(pos[:10,:10]) + np.mean(pos[-10:,:10]) + np.mean(pos[:10,-10:]) + np.mean(pos[-10:,-10:]))/4
-            offset_neg = (np.mean(neg[:10,:10]) + np.mean(neg[-10:,:10]) + np.mean(neg[:10,-10:]) + np.mean(neg[-10:,-10:]))/4
+            offset_pos = (jnp.mean(pos[:10,:10]) + jnp.mean(pos[-10:,:10]) + jnp.mean(pos[:10,-10:]) + jnp.mean(pos[-10:,-10:]))/4
+            offset_neg = (jnp.mean(neg[:10,:10]) + jnp.mean(neg[-10:,:10]) + jnp.mean(neg[:10,-10:]) + jnp.mean(neg[-10:,-10:]))/4
         else:
-            offset_pos = (np.mean(pos[crop:crop+10,crop:crop+10]) + np.mean(pos[-10-crop:-crop,crop:10+crop]) + np.mean(pos[crop:10+crop,-10-crop:-crop]) + np.mean(pos[-10-crop:-crop,-10-crop:-crop]))/4
-            offset_neg = (np.mean(neg[crop:crop+10,crop:crop+10]) + np.mean(neg[-10-crop:-crop,crop:10+crop]) + np.mean(neg[crop:10+crop,-10-crop:-crop]) + np.mean(neg[-10-crop:-crop,-10-crop:-crop]))/4
+            offset_pos = (jnp.mean(pos[crop:crop+10,crop:crop+10]) + jnp.mean(pos[-10-crop:-crop,crop:10+crop]) + jnp.mean(pos[crop:10+crop,-10-crop:-crop]) + jnp.mean(pos[-10-crop:-crop,-10-crop:-crop]))/4
+            offset_neg = (jnp.mean(neg[crop:crop+10,crop:crop+10]) + jnp.mean(neg[-10-crop:-crop,crop:10+crop]) + jnp.mean(neg[crop:10+crop,-10-crop:-crop]) + jnp.mean(neg[-10-crop:-crop,-10-crop:-crop]))/4
             
         pos = pos - offset_pos
         neg = neg - offset_neg
         topo = pos+neg
         if crop==0:
-            factor = np.sum(np.multiply(pos,topo))/np.sum(np.multiply(topo, topo))
+            factor = jnp.sum(jnp.multiply(pos,topo))/jnp.sum(jnp.multiply(topo, topo))
         else:
-            factor = np.sum(np.multiply(pos[crop:-crop,crop:-crop],topo[crop:-crop,crop:-crop]))/np.sum(np.multiply(topo[crop:-crop,crop:-crop], topo[crop:-crop,crop:-crop]))
+            factor = jnp.sum(jnp.multiply(pos[crop:-crop,crop:-crop],topo[crop:-crop,crop:-crop]))/jnp.sum(jnp.multiply(topo[crop:-crop,crop:-crop], topo[crop:-crop,crop:-crop]))
     else:
         topo = pos + neg
         factor = 0.5
@@ -71,7 +72,7 @@ def reconstructCDI(image):
     -------
     author: RB 2020
     '''
-    return np.fft.ifftshift(np.fft.fft2(np.fft.fftshift(image)))
+    return jnp.fft.ifftshift(jnp.fft.fft2(jnp.fft.fftshift(image)))
 
 
 ###########################################################################################
@@ -82,7 +83,7 @@ def reconstructCDI(image):
 
 def integer(n):
     '''return the rounded integer (if you cast a number as int, it will floor the number)'''
-    return int(np.round(n))
+    return int(jnp.round(n))
 
 def set_center(image, center):
     '''
@@ -96,8 +97,8 @@ def set_center(image, center):
     xdim, ydim = image.shape
     xshift = integer(xdim / 2 - center[1])
     yshift = integer(ydim / 2 - center[0])
-    image_shift = np.roll(image, yshift, axis=0)
-    image_shift = np.roll(image_shift, xshift, axis=1)
+    image_shift = jnp.roll(image, yshift, axis=0)
+    image_shift = jnp.roll(image_shift, xshift, axis=1)
     return image_shift
 
 
@@ -126,10 +127,10 @@ def mask_beamstop(image, bs_size, sigma = 3, center = None):
         x0, y0 = [integer(c) for c in center]
 
     #create the beamstop mask using scikit-image's circle function
-    bs_mask = np.zeros(image.shape)
+    bs_mask = jnp.zeros(image.shape)
     yy, xx = circle(y0, x0, bs_size/2)
     bs_mask[yy, xx] = 1
-    bs_mask = np.logical_not(bs_mask).astype(np.float64)
+    bs_mask = jnp.logical_not(bs_mask).astype(jnp.float64)
     #smooth the mask with a gaussion filter    
     bs_mask = gaussian_filter(bs_mask, sigma, mode='constant', cval=1)
     return image*bs_mask
@@ -158,15 +159,15 @@ def propagate(holo, prop_l, experimental_setup = {'ccd_dist': 18e-2, 'energy': 7
     '''
     wl = cst.h * cst.c / (experimental_setup['energy'] * cst.e)
     if integer_wl_multiple:
-        prop_l = np.round(prop_l / wl) * wl
+        prop_l = jnp.round(prop_l / wl) * wl
 
     l1, l2 = holo.shape
     q0, p0 = [s / 2 for s in holo.shape] # centre of the hologram
-    q, p = np.mgrid[0:l1, 0:l2]  #grid over CCD pixel coordinates   
+    q, p = jnp.mgrid[0:l1, 0:l2]  #grid over CCD pixel coordinates   
     pq_grid = (q - q0) ** 2 + (p - p0) ** 2 #grid over CCD pixel coordinates, (0,0) is the centre position
-    dist_wl = 2 * prop_l * np.pi / wl
-    phase = (dist_wl * np.sqrt(1 - (experimental_setup['px_size']/ experimental_setup['ccd_dist']) ** 2 * pq_grid))
-    holo = np.exp(1j * phase) * holo
+    dist_wl = 2 * prop_l * jnp.pi / wl
+    phase = (dist_wl * jnp.sqrt(1 - (experimental_setup['px_size']/ experimental_setup['ccd_dist']) ** 2 * pq_grid))
+    holo = jnp.exp(1j * phase) * holo
 
     #print ('Propagation distance: %.2fum' % (prop_l*1e6)) 
     return holo

@@ -16,6 +16,7 @@ except:
     print("without a GPU, Phase_Retrieval_noGPU.py is imported instead. The code will work, but very slowly")
     import Phase_Retrieval_noGPU as PhR
 
+import time
 import imageio
 import cupy as cp
 import numpy as np
@@ -32,7 +33,7 @@ from numpy.core.umath_tests import inner1d
 def plot_amenities(what_to_plot,cbar_label, image, recon, colormap, colorbar_lim, mi, ma):
     fig, ax = plt.subplots(1,2, frameon = False, figsize = (12,5))
     cax=ax[0].imshow(recon, cmap = colormap, vmin=mi, vmax=ma)
-    ax[1].scatter(np.real(image[supportmask_cropped[roi_cropped]==1].flatten()),np.imag(image[supportmask_cropped[roi_cropped]==1].flatten()),
+    ax[1].scatter(jnp.real(image[supportmask_cropped[roi_cropped]==1].flatten()),jnp.imag(image[supportmask_cropped[roi_cropped]==1].flatten()),
                   c= recon[supportmask_cropped[roi_cropped]==1].flatten(),cmap=colormap,
                   vmin=mi, vmax=ma, s=2)
     cbar = plt.colorbar(cax)
@@ -42,7 +43,7 @@ def plot_amenities(what_to_plot,cbar_label, image, recon, colormap, colorbar_lim
     ax[1].set_facecolor('black')
     ax[1].set_xlabel("real part")
     ax[1].set_ylabel("imaginary part")
-    lim_plot=1.1*np.maximum(np.abs(mi),np.abs(ma))
+    lim_plot=1.1*jnp.maximum(jnp.abs(mi),jnp.abs(ma))
     plt.xlim(-lim_plot, lim_plot)
     plt.ylim(-lim_plot, lim_plot)
     
@@ -59,11 +60,11 @@ folder_masks= './processed/masks/'
 experimental_setup = {'ccd_dist': 18e-2, 'energy': 779.5, 'px_size' : 20e-6}
 
 # center of the experimental hologram
-center=np.array([485.43051269, 477.44748039])
+center=jnp.array([485.43051269, 477.44748039])
 
 # region of interest of our reconstruction
-roi_array=np.array([343, 403, 490, 547])
-roi = np.s_[roi_array[2]:roi_array[3], roi_array[0]:roi_array[1]]
+roi_array=jnp.array([343, 403, 490, 547])
+roi = jnp.s_[roi_array[2]:roi_array[3], roi_array[0]:roi_array[1]]
 
 # focusing parameters used for the reconstruction
 prop_dist,phase,dx,dy=(1.49, 2.27441, 0.0, 0.0) 
@@ -73,6 +74,17 @@ bs_diam=58
 
 # CROPPING by 82 pixels: all images are cropped at the borders by 82 pixels as there is no information at the edges.
 crop=82
+
+
+def approx_percentile(input_array, percentile_goals):
+    if input_array.size > 100000:
+        num_samples = int(input_array.size/100)
+        positions = np.random.permutation(np.arange(input_array.size))
+        init_indices = positions[:num_samples].flatten()
+        sub_array = input_array.flatten()[init_indices]
+        return jnp.percentile(sub_array, percentile_goals)
+    else:
+        return jnp.percentile(input_array, percentile_goals)
 
 
 def proc_p(folder_masks, additional_path):
@@ -101,15 +113,16 @@ def get_mask_pixel(folder_masks):
     mask_pixel_raw = imageio.imread(proc_p(folder_masks, 'mask_pixel3_paint.png'))[:,:,0]==255
     mask_pixel_raw = imageio.imread(proc_p(folder_masks, 'mask_pixel4_paint.png'))[:,:,0]==255
 
-    mask_pixel_raw=np.minimum(mask_pixel_raw, np.ones(mask_pixel_raw.shape))
+    mask_pixel_raw=jnp.minimum(mask_pixel_raw, jnp.ones(mask_pixel_raw.shape))
 
     # import supportmask for phase retrieval
     supportmask_cropped = imageio.imread(proc_p(folder_masks, 'supportmask_cropped.png'))[:,:,0]==255
-    supportmask_cropped = np.minimum(supportmask_cropped, np.ones(supportmask_cropped.shape))
+    supportmask_cropped = jnp.minimum(supportmask_cropped, jnp.ones(supportmask_cropped.shape))
     # add a reference aperture at the center of the hologram
     radius=3
     yy,xx=circle(supportmask_cropped.shape[0]//2,supportmask_cropped.shape[0]//2,radius)
-    supportmask_cropped[yy,xx]=1
+    #supportmask_cropped[yy,xx]=1
+    supportmask_cropped = supportmask_cropped.at[yy,xx].set(1)
     return supportmask_cropped, mask_pixel_raw
 
 
@@ -125,7 +138,7 @@ def create_diff_piece(my_mode=' 1-1', mode_i_names=[], topo_i_names=[]):
     
     Returns:
     --------
-        diff_piece (np.array) : Array of difference hologram for the given mode
+        diff_piece (jnp.array) : Array of difference hologram for the given mode
     """
     #PLACEHOLDER
 
@@ -181,10 +194,10 @@ def create_calculated_pieces(my_mode=' 1-1', helicity=1, useAvg=False,
             topoArr = topo_name_to_data[key]
         else:
             topoArr = opn.openTopo(topoNumber=key, pathtype='f')
-            tr = np.sum(inner1d(topoArr, topoArr))
+            tr = jnp.sum(inner1d(topoArr, topoArr))
             topo_name_to_trace[key] = tr
             topo_name_to_data[key] = topoArr
-        alpha_num = np.sum(inner1d(topoArr, holoArr))
+        alpha_num = jnp.sum(inner1d(topoArr, holoArr))
         alpha = alpha_num / tr
         p_k_prime = 2*alpha*topoArr - holoArr #Same formula for both p_k_prime and n_k_prime
         all_arrs.append(p_k_prime)
@@ -219,7 +232,8 @@ def pre_gen_d_calculated_diff(my_mode=' 1-1'):
 
 def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped, 
                                roi_array, mode=1, crop=82, bs_diam=58,
-                               experimental_setup = {}, use_PhRt=True):
+                               experimental_setup = {}, use_PhRt=True,
+                               save_my_fig=True):
     """
     Attempts to use the same processing pipeline as the paper, assuming 
     pos and neg are pre-calculated. Depending on what function is used with 
@@ -231,9 +245,9 @@ def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped,
     --------
         pos (jax/numpy array) : Positive Helicity Array of the MODE
         neg (jax/numpy array) : Negative Helicity Array of the MODE
-        mask_pixel_raw (np array?) : The raw mask for the modes
-        supportmask_cropped (np array?) : The support mask made into a disk
-        roi_array (np array) : Denotes the rectangular regoin of interest
+        mask_pixel_raw (jnp array?) : The raw mask for the modes
+        supportmask_cropped (jnp array?) : The support mask made into a disk
+        roi_array (jnp array) : Denotes the rectangular regoin of interest
         mode (int) : Which mode this is - IF 2 or more, currently Breaks - 
                      Should be used to initialize guesses.
         crop (int) : How many pixels to crop at the borders
@@ -258,9 +272,11 @@ def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped,
     """
 
 
-
+    s1 = time.time()
     # GET RID OF OFFSET (and renormalize images)
     pos2, neg2, _=fth.load_both_RB(pos,neg, crop=50, auto_factor=0.5)
+    e1 = time.time()
+    print("Offset Adjustment: ", e1 - s1)
 
     #make sure to return a quadratic image, otherwise the fft will distort the image
     size = mask_pixel_raw.shape
@@ -275,45 +291,59 @@ def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped,
     pos2= fth.set_center(pos2, center)
     neg2= fth.set_center(neg2, center)
     mask_pixel= fth.set_center(mask_pixel, center)
+    e2 = time.time()
+    print("Centering: ", e2 - e1)
 
     pos_cropped,neg_cropped, mask_pixel_cropped, roi_cropped_array=pos2.copy(), neg2.copy(), mask_pixel.copy(), roi_array.copy()
-    roi_cropped=np.s_[roi_cropped_array[2]:roi_cropped_array[3], roi_cropped_array[0]: roi_cropped_array[1]]
+    roi_cropped=jnp.s_[roi_cropped_array[2]:roi_cropped_array[3], roi_cropped_array[0]: roi_cropped_array[1]]
     pos_cropped,neg_cropped, mask_pixel_cropped=pos2[crop:-crop,crop:-crop],neg2[crop:-crop,crop:-crop], mask_pixel[crop:-crop,crop:-crop]
 
     roi_array_cropped=roi_array*(pos_cropped.shape[0]/pos2.shape[0])
     roi_array_cropped=roi_array_cropped.astype(int)
-    roi_cropped = np.s_[roi_array_cropped[2]:roi_array_cropped[3], roi_array_cropped[0]:roi_array_cropped[1]]
-
+    roi_cropped = jnp.s_[roi_array_cropped[2]:roi_array_cropped[3], roi_array_cropped[0]:roi_array_cropped[1]]
+    e3 = time.time()
+    print("Cropping (1): ", e3 - e2)
 
     #get rid of any remaining offset
-    mask_rect=np.zeros(pos_cropped.shape)
+    mask_rect=jnp.zeros(pos_cropped.shape)
     N=10
     yy,xx=circle(pos_cropped.shape[0]//2,pos_cropped.shape[0]//2,pos_cropped.shape[0]*(N-1)/N*0.5)
-    mask_rect[yy,xx]=1
-    mask_rect[mask_pixel_cropped==1]=1
+    #mask_rect[yy,xx]=1
+    #mask_rect[mask_pixel_cropped==1]=1
+    mask_rect = mask_rect.at[yy,xx].set(1)
+    mask_rect = mask_rect.at[mask_pixel_cropped==1].set(1)
 
     thr=1
-    pos_cropped -= np.percentile(pos_cropped[mask_rect==0],thr)
-    neg_cropped -= np.percentile(neg_cropped[mask_rect==0],thr)
-
+    e3p5 = time.time()
+    pos_cropped -= approx_percentile(jnp.array(pos_cropped[mask_rect==0]),jnp.array(thr))
+    neg_cropped -= approx_percentile(jnp.array(neg_cropped[mask_rect==0]),jnp.array(thr))
+    e4 = time.time()
+    print("Percentile Cropping: ", e4 - e3p5)
 
     # define an artificial beamstop
-    yy,xx = circle(pos_cropped.shape[0]//2, pos_cropped.shape[1]//2+2, bs_diam//2)
+    yy, xx = circle(pos_cropped.shape[0]//2, pos_cropped.shape[1]//2+2, bs_diam//2)
 
     # pixels to mask during phase retrieval
-    bsmask_p=mask_pixel_cropped.copy()
-    bsmask_p[pos_cropped<=0]=1
-    bsmask_p[yy,xx]=1
-    bsmask_n=mask_pixel_cropped.copy()
-    bsmask_n[neg_cropped<=0]=1
-    bsmask_n[yy,xx]=1
-
+    bsmask_p = mask_pixel_cropped.copy()
+    #bsmask_p[pos_cropped<=0]=1
+    #bsmask_p[yy,xx]=1
+    bsmask_p = bsmask_p.at[pos_cropped<=0].set(1)
+    bsmask_p = bsmask_p.at[yy,xx].set(1)
+    bsmask_n = mask_pixel_cropped.copy()
+    #bsmask_n[neg_cropped<=0]=1
+    #bsmask_n[yy,xx]=1
+    bsmask_n = bsmask_n.at[neg_cropped<=0].set(1)
+    bsmask_n = bsmask_n.at[yy,xx].set(1)
+    e5 = time.time()
+    print("Beamstop Masking: ", e5 - e4)
 
     # starting guess for phase retrieval for the first mode.
-    Startimage=supportmask_cropped*(pos_cropped*0 + 1.3*1e6*np.exp(-1j*2.5)) 
-    Startimage=np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(Startimage)))
+    Startimage=supportmask_cropped*(pos_cropped*0 + 1.3*1e6*jnp.exp(-1j*2.5)) 
+    Startimage=jnp.fft.fftshift(jnp.fft.ifft2(jnp.fft.ifftshift(Startimage)))
     # normalized with respect to the current mode hologram intensity
-    Startimage*=np.sqrt(np.sum(pos_cropped*(1-bsmask_p))/(60*1e9))
+    Startimage*=jnp.sqrt(jnp.sum(pos_cropped*(1-bsmask_p))/(60*1e9))
+    e6 = time.time()
+    print("Starting Image Guess setup, multiple ffts: ", e6 - e5)
 
     # from the second mode onwards,we use the result of mode 1 as a starting guess, after normalizing it by the intensity of the mode to reconstruct
     if mode==2:
@@ -332,14 +362,14 @@ def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped,
 
     if use_PhRt:
     # positive helicity - 700 RAAR
-        retrieved_p=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(pos_cropped,np.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='mine',
+        retrieved_p=PhR.PhaseRtrv(diffract=jnp.sqrt(jnp.maximum(pos_cropped,jnp.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='mine',
                         beta_zero=0.5, Nit=700, beta_mode='arctan',Phase=Startimage, bsmask=bsmask_p,average_img=30, Fourier_last=True)
         # positive helicity - 50 ER
-        retrieved_p=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(pos_cropped,np.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='ER',
+        retrieved_p=PhR.PhaseRtrv(diffract=jnp.sqrt(jnp.maximum(pos_cropped,jnp.zeros(pos_cropped.shape))), mask=supportmask_cropped, mode='ER',
                         beta_zero=0.5, Nit=50, beta_mode='const',
                         Phase=retrieved_p, bsmask=bsmask_p,average_img=30, Fourier_last=True)
         # negative helicity - 50 ER
-        retrieved_n=PhR.PhaseRtrv(diffract=np.sqrt(np.maximum(neg_cropped,np.zeros(neg_cropped.shape))), mask=supportmask_cropped, mode='ER',
+        retrieved_n=PhR.PhaseRtrv(diffract=jnp.sqrt(jnp.maximum(neg_cropped,jnp.zeros(neg_cropped.shape))), mask=supportmask_cropped, mode='ER',
                         beta_zero=0.5, Nit=50, beta_mode='const',
                         Phase=retrieved_p, bsmask=bsmask_n,average_img=30, Fourier_last=True)
 
@@ -347,36 +377,48 @@ def visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped,
         retrieved_p = jnp.fft.ifft(jnp.fft.ifftshift(pos_cropped)) 
         retrieved_n = jnp.fft.ifft(jnp.fft.ifftshift(neg_cropped))
     #^ Just what I think should be the easiest realspace reconstructions
+    e7 = time.time()
+    print("Phase Retrieval: ", e7 - e6)
+
 
     #focus and reconstruct images into real space
     image_p = fth.reconstructCDI(fth.propagate(retrieved_p, prop_dist*1e-6, experimental_setup))[roi_cropped]
     image_n = fth.reconstructCDI(fth.propagate(retrieved_n, prop_dist*1e-6, experimental_setup))[roi_cropped]
-    print()
-    print("IMAGE P: ", image_p)
-    print()
-    print("IMAGE N: ", image_n)
+    e8 = time.time()
+    print("Reconstruct into real space: ", e8 - e7)
+
 
     ############################################
     # THE FOLLOWING LINES WILL DIVIDE BY NONE? #
     #     THOUGH NONE's ARE LATER SET TO 0     #
     ############################################
-    np.seterr(divide='ignore', invalid='ignore')
+    #np.seterr(divide='ignore', invalid='ignore')
     
     # let's consider only pixels inside the supportmask for plotting
-    image_p[supportmask_cropped[roi_cropped]==0]=None
-    image_n[supportmask_cropped[roi_cropped]==0]=None
+    #image_p[supportmask_cropped[roi_cropped]==0]=None
+    #image_n[supportmask_cropped[roi_cropped]==0]=None
+    image_p = image_p.at[supportmask_cropped[roi_cropped]==0].set(None)
+    image_n = image_n.at[supportmask_cropped[roi_cropped]==0].set(None)
 
     phase = -0.6
-    recon = (image_p-image_n)/(image_p+image_n)* np.exp(1j*phase)
-    recon = np.real(recon)
-    recon[np.isnan(recon)] = 0
-    print()
-    print("RECONSTRUCTION: ", recon)
-    recon = np.fliplr(np.flipud(recon))
-    fig, ax = plt.subplots()
-    vmi, vma = np.percentile(recon,[1,99])
-    m = ax.imshow(recon, vmin = vmi, vmax = vma, cmap = 'gray')
-    plt.savefig('test_img', bbox_inches='tight', transparent = False)
+    recon = (image_p-image_n)/(image_p+image_n)* jnp.exp(1j*phase)
+    recon = jnp.real(recon)
+    recon = recon.at[jnp.isnan(recon)].set(0)
+    #recon[jnp.isnan(recon)] = 0
+    #print()
+    #print("RECONSTRUCTION: ", recon)
+    recon = jnp.fliplr(jnp.flipud(recon))
+    if save_my_fig:
+        vmi, vma = approx_percentile(jnp.array(recon),jnp.array([1,99]))
+        e9 = time.time()
+        print("Finishing setup for vis: ", e9 - e8)
+
+        fig, ax = plt.subplots()
+        m = ax.imshow(recon, vmin = vmi, vmax = vma, cmap = 'gray')
+        plt.savefig('test_img', bbox_inches='tight', transparent = False)
+        e10 = time.time()
+        print("Saving Fig: ", e10 - e9)
+    return recon
 
 
 def pre_gen_d_construct_pieces(my_mode=' 1-1', avg=True):
@@ -398,10 +440,10 @@ def pre_gen_d_calc_pos_neg_using_diff(my_mode=' 1-1', avg=False):
 
     Returns:
     --------
-        main_pos (np.array) : Hologram positive piece for feeding into visualize_mode, 
+        main_pos (jnp.array) : Hologram positive piece for feeding into visualize_mode, 
                             As the documentation describes how to calculate it 
                             (DOES NOT AGREE WITH ACTUAL PRE-GEN'D PIECE)
-        main_pos (np.array) : Hologram negative piece for feeding into visualize_mode, 
+        main_pos (jnp.array) : Hologram negative piece for feeding into visualize_mode, 
                             As the documentation describes how to calculate it 
                             (DOES NOT AGREE WITH ACTUAL PRE-GEN'D PIECE)
     """
@@ -409,7 +451,8 @@ def pre_gen_d_calc_pos_neg_using_diff(my_mode=' 1-1', avg=False):
     pos_calc = pre_gen_d_calculated_pieces(my_mode, helicity=1, useAvg=avg)
     neg_calc = pre_gen_d_calculated_pieces(my_mode, helicity=-1, useAvg=avg)
     diff = pre_gen_d_calculated_diff(my_mode)
-    pos_negs_sum = np.sum(pos, neg, pos_calc, neg_calc)
+    pos_negs_sum = sum([pos, neg, pos_calc, neg_calc])
+    print(pos_negs_sum)
     main_pos = ( pos_negs_sum + diff ) / 2
     main_neg = ( pos_negs_sum - diff ) / 2
     return main_pos, main_neg
@@ -417,15 +460,18 @@ def pre_gen_d_calc_pos_neg_using_diff(my_mode=' 1-1', avg=False):
 
 if __name__ == "__main__":
     folder_masks = my_vars.modeMasks
-    pos, neg = pre_gen_d_construct_pieces(my_mode=' 1-1', avg=True)
-    roi_array = roi_array=np.array([343, 403, 490, 547])
+    pos, neg = pre_gen_d_construct_pieces(my_mode=' 1-1', avg=False)
+    #pos, neg = pre_gen_d_calc_pos_neg_using_diff(my_mode=' 1-1', avg=False)
+    roi_array = roi_array=jnp.array([343, 403, 490, 547])
     experimental_setup = {'ccd_dist': 18e-2, 'energy': 779.5, 'px_size' : 20e-6}
     supportmask_cropped, mask_pixel_raw = get_mask_pixel(folder_masks)
+    s = time.time()
     visualize_mode(pos, neg, mask_pixel_raw, supportmask_cropped, 
                                roi_array, mode=1, crop=82, bs_diam=58,
                                experimental_setup = experimental_setup,
                                use_PhRt=True)
-    
+    e = time.time()
+    print("Total Time Taken for Visualization: ", e - s)
     """
     TO DO: 
     - Write a func that calcs the diff pieces, then calc the relevant stuff to feed into 
