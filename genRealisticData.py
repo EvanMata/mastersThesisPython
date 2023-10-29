@@ -130,8 +130,8 @@ def noise_visual():
     plt.show()
 
 
-def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, st_avg=20, st_stv=4, 
-               lb_size=6, ub_size=10, region_d=5):
+def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
+               fix_stv_stv=2, lb_size=6, ub_size=10, region_d=5):
     """
     Generates my states and transition probabilities for them. Currently assumes the 
     same number of orbs for each state, ub_orbs
@@ -143,9 +143,11 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, st_avg=20, st_stv
         array_shape (tup) : size of the canvas, x by y pixels
         lb_orbs (int) : lower bound on the number of orbs on the canvas as once
         ub_orbs (int) : upper bound on the number of orbs on the canvas as once
-        st_avg (int) : The expected average of the number of itterations a state stays fixed
-        st_stv (float) : The Standard Deviation of the expected number of itterations 
+        fix_avg (int) : The expected average of the number of itterations a state stays fixed
+        fix_stv (float) : The Standard Deviation of the expected number of itterations 
                          a state stays fixed
+        fix_stv_stv (float) : Standard Deviation of the standard derivations of 
+                              the expected number of itterations a state stays fixed
         lb_size (int) : Minimum diameter of an orb
         ub_size (int) : Maximum diameter of an orb
         region_d (int) : Diameter of a region for an orb to be centered in.
@@ -156,8 +158,10 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, st_avg=20, st_stv
         states_i (dict) : Dict of State Number: Expected Image of State (array)
         states_c (dict) : Dict of State Number: Dict of Orb Numbers: valid region locations
                           For The given orb (eg where it can move to when in the state) 
-        states_s (dict) : Dict of State Number: Expected Number of itterations to stay in state
-                          before identifying new state to transition to.
+        states_s (dict) : Dict of State Number: 
+                            [Expected Number of itterations to stay in state, before 
+                             identifying new state to transition to,
+                             Stv of Number of itterations to stay in state]
         trans (jnp array) : Jax array of transition probabilities between states
     """
     n_key, subkey = jax.random.split(c_key)
@@ -169,9 +173,17 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, st_avg=20, st_stv
 
     states_i = dict()
     states_c = dict()
-    states_s = dict()
+    states_f = dict()
 
+    # Setup the distributions of how long each state stays fixed
+    n_key, subkey = jax.random.split(n_key)
+    state_duration_avgs = fix_stv*(jnp.random.normal(subkey, shape=(n_states,))) + fix_avg
+    min_state_duration = max([0, fix_avg - fix_stv*3])
+    state_duration_avgs = jnp.clip(state_duration_avgs, a_min=min_state_duration)
 
+    n_key, subkey = jax.random.split(n_key)
+    state_duration_variances = fix_stv_stv*(jnp.random.normal(subkey, shape=(n_states,))) + fix_stv
+    state_duration_variances = jnp.clip(state_duration_variances, a_min=0.1)
     
     for state in range(n_states):
         n_orbs = ub_orbs #ADJUST THIS LATER
@@ -199,9 +211,11 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, st_avg=20, st_stv
 
         states_i[state] = visual
         states_c[state] = orb_num_to_corner
+        state_dur_avg, state_dur_stv = state_duration_avgs[state], state_duration_variances[state]
+        states_f[state] = (state_dur_avg, state_dur_stv)
 
 
-    return n_key, states_i, states_c, states_s, trans
+    return n_key, states_i, states_c, states_f, trans
 
 
 def get_region(array_shape, corner, region_d, orb_diam, sq=True):
@@ -275,7 +289,97 @@ def get_orb_pts(array_shape, corner, orb_diam):
     return current_coords
 
 
+def gen_graph(n_states, p, c_key, self_loops=True):
+    """
+    Generates a random graph that is fully connected. 
+    Creates a random fully connected graph with n-1 vertices, and a random erdas 
+    reini graph, then combines them (logical or) and sets all their weights randomly. 
+    
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        n_states (int) : number of distinct states 
+        p (float in (0,1)) : Probability of adding an edge for the erdas-reini construction
+        self_loops (bool) : Whether to include the possibility of a state transitioning 
+                            back to itself. 
+    
+    """
+    adj_mat = jnp.zeros((n_states, n_states))
+    n_key, subkey = jax.random.split(c_key)
+    er_graph = nx.erdos_renyi_graph(n_states, p, seed=int(subkey[0]))
+    er_graph = jnp.array(nx.to_numpy_array(er_graph))
+    fully_connected, n_key = random_fully_connected(n_states, n_key)
+    connected_indices = jnp.logical_or(fully_connected, er_graph)
+    if self_loops:
+        id = jnp.identity(n_states)
+        connected_indices = jnp.logical_or(connected_indices, id)
+    connected_indices_tri1 = jnp.triu(connected_indices)
+    num_edges_tri1 = jnp.sum(connected_indices)
 
+    n_key, subkey = jax.random.split(n_key)
+    pre_adjusted_edge_weights = jnp.random.normal(subkey, shape=(num_edges_tri1, ))
+    inds_for_wieghts = jnp.where(connected_indices_tri1)==True
+    adj_mat = adj_mat.at[inds_for_wieghts].set(pre_adjusted_edge_weights)
+
+    #Now make it dobuley stochastic
+    #softmax row 0
+    #softmax row 1 from 1-n (eg not including 0) - multiply by (1-M[0,1]), so that 
+    # it adds with row 0 value 1
+    # repeat all the way down
+    # Is top right much more likely to be larger values? Probabily?
+
+    top_r = jnp.triu(adj_mat, k=1)
+    adj_mat = 5
+
+    #Dobule stochastic times doubly stochastic is doubly stochastic
+    #So make my random fully connected graph, 
+    #
+    
+
+    #add [k,k] + top_right + top_right.T
+
+    #random_graph = jnp.clip(random_graph) #No, Softmax it instead to make it row stochastic
+
+
+def random_fully_connected(n_states, c_key):
+    """
+    Generates a random fully connected graph w. n-1 edges
+
+    Inputs:
+    --------
+        n_states (int) : number of distinct states 
+        c_key (jnp array) : The current key. Used by JAX to generate random numbers 
+                    and ensure results reproducible
+    Returns:
+    --------
+        fully_connected (jnp array) : Array of 1's and 0's, w. n-1 1's
+        n_key (jnp array) : new key for generating new random numbers
+    """
+    fully_connected = jnp.zeros((n_states, n_states))
+    i, j = jnp.indices((n_states, n_states))
+    fully_connected = fully_connected.at[i==j-1].set(1) #Set superdiag = 1
+    fully_connected, n_key = permute_matrix(fully_connected, c_key) #random permute
+    return fully_connected, n_key
+
+
+def gen_perm(n_states, c_key):
+    """
+    Generates a single random permutation matrix
+    """
+    n_key, subkey = jax.random.split(c_key)
+    id = jnp.identiy(n_states)
+    perm = jax.random.shuffle(subkey, id)
+    return perm, n_key
+
+
+def permute_matrix(matrix, c_key):
+    """
+    Permutates a matrix with a random permutation
+    """
+    n_states = matrix.shape[0]
+    perm, n_key = gen_perm(n_states, c_key)
+    permuted_m = jnp.matmul(perm.T, jnp.matmul(matrix, perm))
+    return permuted_m, n_key
 
 
 if __name__ == "__main__":
