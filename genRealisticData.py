@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from itertools import product
 from scipy.spatial.distance import cdist
 
+import pathlib_variable_names as my_vars
+
 MY_KEY = jax.random.PRNGKey(0)
 
 
@@ -579,7 +581,7 @@ def state_moving_visual(c_key, save_folder, n_steps=100):
     trans_to = corner
     corners = [trans_to]
     #for i in range(n_steps):
-    for i in range(5):
+    for i in range(n_steps):
         canvas = jnp.ones(array_shape)
         n_key, trans_to, arrived_prev = one_orb_one_st(
                 n_key, trans_to, destination, array_shape, 
@@ -601,9 +603,8 @@ def state_moving_visual(c_key, save_folder, n_steps=100):
 
         plt.imshow(canvas, cmap='hot', interpolation='nearest')
         plt.axis([0, array_shape[0], 0, array_shape[1]])
-        base_fname = "state_moving_frame_%"%i
-        fname = save_folder + base_fname
-        plt.savefig()
+        fname = save_folder%i
+        plt.savefig(fname)
 
 
 if __name__ == "__main__":
@@ -615,4 +616,4 @@ if __name__ == "__main__":
     plt.show()
     """
     #prob_distro_vis(epsi=0.8)
-    state_moving_visual(c_key=MY_KEY, save_folder=5, n_steps=100)
+    state_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestSP, n_steps=5)

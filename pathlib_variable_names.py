@@ -37,6 +37,8 @@ zenodoPath = pathlib.Path(*zenodoPath)
 '''
 Paths for Visuals
 '''
+stateToDestP = imagesPath.joinpath( "stateToDest" )
+stateToDestSP = str(stateToDestP.joinpath( "state_moving_frame_%d" ))
 
 
 
