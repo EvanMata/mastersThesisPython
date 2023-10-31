@@ -4,8 +4,15 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 from itertools import product
+from scipy.spatial.distance import cdist
 
 MY_KEY = jax.random.PRNGKey(0)
+
+
+####################
+# Noise Generation #
+####################
+
 
 def gen_low_freq_noise_rot(array_shape, c_key, l_bd=-1, u_bd=1, 
                        cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02]):
@@ -108,26 +115,9 @@ def gen_low_freq_noise(array_shape, c_key, l_bd=-1, u_bd=1,
     return noise, f_space, n_key
 
 
-def noise_visual():
-    """
-    Creates my visual comparing my rotation to regular noise items
-    """
-    array_shape = (100,100)
-    noise_rot, f_noise_rot, n_key = gen_low_freq_noise_rot(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
-                       cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
-    noise, f_noise, n_key = gen_low_freq_noise(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
-                       cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
-    
-    fig, axs = plt.subplots(2,2)
-    axs[0, 0].imshow(noise_rot, cmap='hot', interpolation='nearest')
-    axs[0, 0].set_title('Rotational Noise')
-    axs[0, 1].imshow(f_noise_rot, cmap='hot', interpolation='nearest')
-    axs[0, 1].set_title('Kept Fourier Space: Rot')
-    axs[1, 0].imshow(noise, cmap='hot', interpolation='nearest')
-    axs[1, 0].set_title('Corners Noise')
-    axs[1, 1].imshow(f_noise, cmap='hot', interpolation='nearest')
-    axs[1, 1].set_title('Kept Fourier Space: Corners')
-    plt.show()
+####################
+# State Generation #
+####################
 
 
 def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
@@ -156,8 +146,8 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
     --------
         n_key (jnp array) : new key for generating new random numbers
         states_i (dict) : Dict of State Number: Expected Image of State (array)
-        states_c (dict) : Dict of State Number: Dict of Orb Numbers: valid region locations
-                          For The given orb (eg where it can move to when in the state) 
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: valid region/destination
+                          locations for The given orb (eg where it can move to when in the state) 
         states_s (dict) : Dict of State Number: 
                             [Expected Number of itterations to stay in state, before 
                              identifying new state to transition to,
@@ -221,8 +211,9 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
 def get_region(array_shape, corner, region_d, orb_diam, sq=True):
     """
     Given the corner of the region for a given orb, calculate the relevant region
-    of points that are ok.
-    
+    of points that are ok for the corner to go to. 
+    Eg if square product(x_cor:x_cor + diam, y_cor:y_cor + diam) but within the grid.
+
     Inputs:
     --------
         array_shape (tup) : shape of the canvas 
@@ -251,6 +242,7 @@ def get_region(array_shape, corner, region_d, orb_diam, sq=True):
     else:
         print("NOT IMPLEMENTED")
 
+    region = jnp.array(region)
     return region
 
 
@@ -289,7 +281,12 @@ def get_orb_pts(array_shape, corner, orb_diam):
     return current_coords
 
 
-def gen_graph(n_states, p, c_key, self_loops=True):
+########################
+# Graph Creation tools #
+########################
+
+
+def gen_graph(c_key, n_states, p, self_loops=True):
     """
     Generates a random graph that is fully connected. 
     Creates a random fully connected graph with n-1 vertices, and a random erdas 
@@ -318,7 +315,7 @@ def gen_graph(n_states, p, c_key, self_loops=True):
 
     n_key, subkey = jax.random.split(n_key)
     pre_adjusted_edge_weights = jnp.random.normal(subkey, shape=(num_edges_tri1, ))
-    inds_for_wieghts = jnp.where(connected_indices_tri1)==True
+    inds_for_wieghts = jnp.where(connected_indices_tri1)
     adj_mat = adj_mat.at[inds_for_wieghts].set(pre_adjusted_edge_weights)
 
     #Now make it dobuley stochastic
@@ -382,9 +379,240 @@ def permute_matrix(matrix, c_key):
     return permuted_m, n_key
 
 
+##############
+# Move 1 Orb #
+##############
+
+def prob_distro(epsi, corner, orb_diam, array_shape, destination, sq=True):
+    """
+    Calculates the probability of the given orb center transitioning to each adjacent space.
+    Sets prob to go to a closer sq as epsi/num closer places 
+
+    Inputs:
+    -------
+        epsi (float in [.5,1]) : Probability of moving towards the destination 
+                                 (in aggregate)
+        corner (jnp.array) : (x,y) pair indicating where the lowest x, lowest y valued 
+                        corner a box around the orb would be
+        orb_diam (int) : Diameter of the orb who's region it will be.
+        array_shape (tup) : shape of the canvas 
+        destination (jnp array) : states_c[state][orb] value, an array of tuples of 
+                    corner locations that the orb is heading towards
+        sq (bool) : If true, makes regions that are squares, 
+                    If false NOT IMPLEMENTED, make plus or circle shapes regions
+    
+    Returns:
+    --------
+        valid_transitions (jnp array) : array of tuples indicating valid 
+                                        corner's to transition to, 
+        trans_probs (jnp array) : Array of normalize transition probabilies corresponding 
+                                  to the valid transitions (trans to valid_transitions[i] 
+                                                     has prob trans_probs[i])
+    """
+
+    diam = 5 #Diameter of region where orb can travel to.
+    
+    valid_transitions = get_region(array_shape, corner - 2, diam, orb_diam, sq) #For corners, global
+    trans_probs = jnp.zeros(valid_transitions.shape[0],)
+    dists = cdist( valid_transitions, destination, metric='euclidean' )
+    min_l2s = jnp.min(dists, axis=1)
+    base_dist = jnp.min(cdist( [corner], destination, metric='euclidean' ))
+    move_towards_indices = jnp.where(min_l2s < base_dist)
+    move_away_indices = jnp.where(min_l2s >= base_dist)
+    num_mv_towards = move_towards_indices[0].size
+    normed_mv_towards_prob = float(epsi / num_mv_towards)
+    normed_mv_away_prob = float((1-epsi) / (valid_transitions.size - num_mv_towards))
+    trans_probs = trans_probs.at[move_towards_indices[0]].set(normed_mv_towards_prob)
+    trans_probs = trans_probs.at[move_away_indices[0]].set(normed_mv_away_prob)
+
+    return valid_transitions, trans_probs
+
+
+def orb_step_toward_st(c_key, *args):
+    """
+    Moves 1 orb 1 step closer to a state. NOT for when already in a state.
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        *args (lst) : Args for prob_distro, [epsi, corner, orb_diam, 
+                                             array_shape, destination, sq] 
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        trans_to (jnp array) : array of x,y value for new corner
+    """
+    n_key, subkey = jax.random.split(c_key)
+    valid_transitions, trans_probs = prob_distro(*args)
+    trans_to = jax.random.choice(subkey, valid_transitions, p=trans_probs)
+    return n_key, trans_to
+
+
+def orb_step_arived_st(c_key, destination, *args):
+    """
+    Picks where the orb moves if it has already arrived at its destination
+    Should update this if destinations get large, so that jumps aren't more than one step.
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        destination (jnp array) : states_c[state][orb] value, an array of tuples of 
+                    corner locations that the orb is heading towards
+        *args (lst) : args for get_region, eg [array_shape, corner, 1, orb_diam, sq]
+    Returns:
+    -------
+        n_key (jnp array) : new key for generating new random numbers
+        trans_to (jnp array) : (x,y) corner to transit to.
+    """
+    valid_transitions = get_region(*args)
+    valid_trans = set([(int(loc[0]),int(loc[1])) for loc in valid_transitions])
+    dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
+    valid_dests = list(dests.intersection(valid_trans)) 
+    n_key, subkey = jax.random.split(c_key)
+    trans_to_index = jax.random.randint(subkey, shape=(1,), minval=0, maxval=len(valid_dests))
+    trans_to = destination[trans_to_index][0]
+    return n_key, trans_to
+
+
+def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arrived_prev, 
+                   sq=True):
+    """
+    Moves one orb one state
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        corner (jnp.array) : (x,y) pair indicating where the lowest x, lowest y valued 
+                        corner a box around the orb would be
+        destination (jnp array) : states_c[state][orb] value, an array of tuples of 
+                    corner locations that the orb is heading towards
+        array_shape (tup) : shape of the canvas 
+        orb_diam (int) : Diameter of the orb who's region it will be.
+        epsi (float in [.5,1]) : Probability of moving towards the destination 
+                                 (in aggregate)
+        arrived_prev (bool) : Whether the given orb's corner previously arrived 
+                              at its destination
+        sq (bool) : If true, makes regions that are squares, 
+                    If false NOT IMPLEMENTED, make plus or circle shapes regions
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        trans_to (jnp array) : (x,y) corner to transit to.
+
+    """
+    corner_t = (int(corner[0]), int(corner[1]))
+    dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
+    if arrived_prev:
+        my_args = [array_shape, corner, 1, orb_diam, sq]
+        n_key, trans_to = orb_step_arived_st(c_key, destination, *my_args)
+    else:
+        my_args = [epsi, corner, orb_diam, array_shape, destination, sq]
+        n_key, trans_to = orb_step_toward_st(c_key, *my_args)
+    trans_to_t = (int(trans_to[0]), int(trans_to[1]))
+    arrived_to = trans_to_t in dests
+    return n_key, trans_to, arrived_to
+
+
+#############################
+# Visuals and Support Funcs #
+#############################
+
+
+def noise_visual():
+    """
+    Creates my visual comparing my rotation to regular noise items
+    """
+    array_shape = (100,100)
+    noise_rot, f_noise_rot, n_key = gen_low_freq_noise_rot(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
+                       cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
+    noise, f_noise, n_key = gen_low_freq_noise(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
+                       cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
+    
+    fig, axs = plt.subplots(2,2)
+    axs[0, 0].imshow(noise_rot, cmap='hot', interpolation='nearest')
+    axs[0, 0].set_title('Rotational Noise')
+    axs[0, 1].imshow(f_noise_rot, cmap='hot', interpolation='nearest')
+    axs[0, 1].set_title('Kept Fourier Space: Rot')
+    axs[1, 0].imshow(noise, cmap='hot', interpolation='nearest')
+    axs[1, 0].set_title('Corners Noise')
+    axs[1, 1].imshow(f_noise, cmap='hot', interpolation='nearest')
+    axs[1, 1].set_title('Kept Fourier Space: Corners')
+    plt.show()
+
+
+def prob_distro_vis(epsi=.8):
+    """
+    Visualizes the basic prob distro of a state moving towards a destination.
+    """
+    array_shape = (20, 20)
+    orb_diam = 8
+    corner = jnp.array([19-int(orb_diam/2),10]) #Side case
+    corner = jnp.array([19-int(orb_diam/2),19-int(orb_diam/2)])
+    
+    destination = jnp.array(list(product(range(1,5),range(1,5))))
+    dest_xs, dest_ys = zip(*destination)
+    valid_transitions, trans_probs = prob_distro(\
+        epsi, corner, orb_diam, array_shape, destination, sq=True)
+    img = jnp.zeros(array_shape)
+    img = img.at[dest_xs, dest_ys].set(.1)
+    xs, ys = zip(*valid_transitions)
+    img = img.at[xs, ys].set(trans_probs)
+    img = jnp.ones(array_shape) - img
+    plt.imshow(img, cmap='hot', interpolation='nearest')
+    plt.show()
+
+
+def state_moving_visual(c_key, save_folder, n_steps=100):
+    #Inits
+    val = 0 #Value for the orb and dest to show up
+    n_key = c_key
+    array_shape = (100,100)
+    destination = jnp.array(list(product(range(3,7),range(3,7))))
+    dest_xs, dest_ys = zip(*destination)
+    corner = jnp.array([50,50])
+    orb_diam = 8
+    epsi = 0.75
+
+
+    arrived_to = False #False for simplicity 
+    arrived_prev = arrived_to
+    trans_to = corner
+    corners = [trans_to]
+    #for i in range(n_steps):
+    for i in range(5):
+        canvas = jnp.ones(array_shape)
+        n_key, trans_to, arrived_prev = one_orb_one_st(
+                n_key, trans_to, destination, array_shape, 
+                orb_diam, epsi, arrived_prev, sq=True)
+        
+        og_orb_coords = get_orb_pts(array_shape, corner, orb_diam)
+        orb_coords = get_orb_pts(array_shape, trans_to, orb_diam)
+        corners.append(trans_to)
+        
+        cor_og_xs, cor_og_ys = zip(*og_orb_coords)
+        xs_orb, ys_orb = zip(*orb_coords)
+        cor_xs, cor_ys = zip(*corners)
+
+        canvas = canvas.at[cor_og_xs, cor_og_ys].set(.7) #Draw original orb
+        canvas = canvas.at[xs_orb, ys_orb].set(val) #Draw current orb
+        canvas = canvas.at[dest_xs, dest_ys].set(val) #Draw Dest
+        canvas = canvas.at[cor_xs, cor_ys].set(0.5) #Draw corners of all time
+        canvas = canvas.at[trans_to[0], trans_to[1]].set(0.2) #Draw current corner
+
+        plt.imshow(canvas, cmap='hot', interpolation='nearest')
+        plt.axis([0, array_shape[0], 0, array_shape[1]])
+        base_fname = "state_moving_frame_%"%i
+        fname = save_folder + base_fname
+        plt.savefig()
+
+
 if __name__ == "__main__":
     array_shape = (100,100)
+    """
     noise, f_noise, n_key = gen_low_freq_noise(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
                        cutoff=0.15, r_cutoff=False, cutoff_bds=[0.02, 0.02])
     plt.imshow(noise, cmap='hot', interpolation='nearest')
     plt.show()
+    """
+    #prob_distro_vis(epsi=0.8)
+    state_moving_visual(c_key=MY_KEY, save_folder=5, n_steps=100)

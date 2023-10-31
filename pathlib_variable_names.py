@@ -1,6 +1,7 @@
 import pathlib
 from pathlib import Path
 
+image_paths = ["Images"]
 zenodo_paths = ["zenodoFiles"]
 small_sample_paths = ["SMALL_SAMPLE"]
 full_sample_paths = ["Provided", "FULL_SAMPLE"]
@@ -18,6 +19,9 @@ corePath = pathlib.Path(*core)
 core2 = list( p.parts[:-2] )
 corePath2 = pathlib.Path(*core2)
 
+imagesPath = core2 + image_paths
+imagesPath = pathlib.Path(*imagesPath)
+
 smallSampPath = core2 + small_sample_paths
 smallSampPath = pathlib.Path(*smallSampPath)
 
@@ -29,6 +33,12 @@ generatedDataPath = pathlib.Path(*generatedDataPath)
 
 zenodoPath = core2 + zenodo_paths
 zenodoPath = pathlib.Path(*zenodoPath)
+
+'''
+Paths for Visuals
+'''
+
+
 
 
 '''
