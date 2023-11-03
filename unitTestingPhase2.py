@@ -266,6 +266,16 @@ def t_vmaped_mat_construction(arr_of_imgs, gamma=0.5):
     return arr
 
 
+def t_vmapped_2():
+    def f_w_o_arrs(a, b, vec, c=True):
+        return not a, jnp.sum(vec)*b, not c
+    v_f = jax.vmap(f_w_o_arrs, (None, 0, 0), 0)
+    my_bs = jnp.array([1,1,2,3])
+    my_vs = jnp.array([[1,1,1],[2,2,2],[1,1,1],[3,3,3]])
+    m_v_f = v_f(True, my_bs, my_vs)
+    print(m_v_f)
+
+
 def gen_random_uni_arr(my_shape=(1000,)):
     key = random.PRNGKey(758493)  # Random seed is explicit in JAX
     return random.uniform(key, shape=my_shape)
@@ -341,6 +351,7 @@ def t_orb(center_on_edge=False):
     plt.imshow(base_canvas, cmap='hot', interpolation='nearest')
     plt.show()
 
+
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
@@ -355,4 +366,5 @@ if __name__ == "__main__":
     #t_topo_holo(topo_num=1, pathtype='f')
     #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=True)
     #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False)
-    t_orb(center_on_edge=True)
+    #t_orb(center_on_edge=True)
+    t_vmapped_2()

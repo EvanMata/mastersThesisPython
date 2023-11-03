@@ -37,9 +37,13 @@ zenodoPath = pathlib.Path(*zenodoPath)
 '''
 Paths for Visuals
 '''
-stateToDestP = imagesPath.joinpath( "stateToDest" )
-stateToDestSP = str(stateToDestP.joinpath( "state_moving_frame_%d" ))
-
+stateToDestF = imagesPath.joinpath( "stateToDest" )
+stateToDestP = str(stateToDestF.joinpath( "state_moving_frame_%d" ))
+vidsFolder = imagesPath.joinpath( "videos" )
+stateImgsF = imagesPath.joinpath( "stateExpectations" )
+stateImgsP = str(stateImgsF.joinpath( "state_%d_expectation" ))
+orbsToStateF = imagesPath.joinpath( "orbsToState" )
+orbsToStateP = str(orbsToStateF.joinpath( "state_moving_frame_%d" ))
 
 
 

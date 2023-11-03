@@ -9,17 +9,18 @@ from scipy.spatial.distance import cdist
 import pathlib_variable_names as my_vars
 
 MY_KEY = jax.random.PRNGKey(0)
-
+DIAM = 5 #Diameter, in pixels, of region an orb can take 1 step in. =1 means unmoving
 
 ####################
 # Noise Generation #
 ####################
 
 
-def gen_low_freq_noise_rot(array_shape, c_key, l_bd=-1, u_bd=1, 
+def gen_low_freq_noise_quarter(array_shape, c_key, l_bd=-1, u_bd=1, 
                        cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02]):
     """
-    Generates a 2d low frequency noise setup, ideally rotationally symmetric (NOT WORKING)
+    Generates a 2d low frequency noise setup, where it keeps a quarter circle of the 
+    lowest frequencies.
 
     Inputs:
     --------
@@ -54,11 +55,69 @@ def gen_low_freq_noise_rot(array_shape, c_key, l_bd=-1, u_bd=1,
 
     x_cen = int(array_shape[0]/2)
     y_cen = int(array_shape[1]/2)
-    #potential_pairs = jnp.array(list(product(range(x_cen), range(y_cen))))
+    tot_rad2 = array_shape[0]**2 + array_shape[1]**2
     potential_pairs = jnp.array(list(product(range(array_shape[0]), range(array_shape[1]))))
-    elipse_vals = jnp.array([float(((v[0] - x_cen)**2)/x_cen + ((v[1] - y_cen)**2)/y_cen)
+    elipse_vals = jnp.array([float((v[0]**2) + (v[1]**2))
                                 for v in potential_pairs])
-    valid_indices = potential_pairs[jnp.where(elipse_vals > (1-cutoff_rad)*(x_cen*y_cen)**0.5)]
+    valid_indices = potential_pairs[jnp.where(elipse_vals**0.5 <= cutoff_rad*array_shape[0])]
+    inds_1, inds_2 = zip(*valid_indices)
+    f_noise = jnp.zeros(array_shape)
+    f_noise = f_noise.at[inds_1, inds_2].set(f_space[inds_1, inds_2])
+    
+    noise = jnp.real(jnp.fft.ifft2(f_noise))
+    f_noise = jnp.real(f_noise)
+
+    return noise, f_noise, n_key
+
+
+def gen_low_freq_noise_rot(array_shape, c_key, l_bd=-1, u_bd=1, 
+                       cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02]):
+    """
+    Generates a 2d low frequency noise setup, where it keeps a circle of the 
+    lowest frequencies.
+
+    Inputs:
+    --------
+        array_shape (tup of 2 ints) : x and y size of the array to create
+        c_key (jnp array) : The current key. Used by JAX to generate random numbers 
+                    and ensure results reproducible
+        l_bd (float) : infemum of generated data 
+        u_bd (float) : Supremum of generated data 
+        cutoff (float) : Should be in (0,1). Keep the bottom cutoff percentile of values
+        r_cutoff (bool) : Whether cutoff should be always be the same value, or if it should be 
+                        Chosen uniformly between cutoff - min(cutoff_bds), cutoff + max(cutoff_bds)
+        cutoff_bfs (lst) : Only used if r_cutoff = True. Then cutoff is uniform on 
+                            cutoff - min(cutoff_bds) & cutoff - max(cutoff_bds)
+
+    Return:
+    --------
+        noise (jnp array) : Array with the noise
+        n_key (jnp array) : new key for generating new random numbers
+    """
+
+    n_key, subkey = jax.random.split(c_key)
+    rl_space = jax.random.uniform(key=subkey, shape=array_shape, minval=l_bd, maxval=u_bd)
+    f_space = jnp.fft.fft2(rl_space)
+
+    if r_cutoff:
+        n_key, subsubkey = jax.random.split(n_key)
+        min_cutoff = cutoff - min(cutoff_bds)
+        max_cutoff = cutoff + max(cutoff_bds)
+        cutoff_rad = float(jax.random.uniform(key=subsubkey, minval=min_cutoff, maxval=max_cutoff))
+    else:
+        cutoff_rad = cutoff
+
+    x_cen = int(array_shape[0]/2)
+    y_cen = int(array_shape[1]/2)
+    array_rad2 = (x_cen**2 + y_cen**2)
+    potential_pairs = jnp.array(list(product(range(array_shape[0]), range(array_shape[1]))))
+    relative_cen_x = cutoff_rad*array_shape[0]
+    relative_cen_y = cutoff_rad*array_shape[1]
+    #elipse_vals = jnp.array([float(((v[0] - x_cen)**2)/x_cen + ((v[1] - y_cen)**2)/y_cen)
+    #                            for v in potential_pairs])
+    radi2 = jnp.array([float(((v[0] - relative_cen_x)**2) + ((v[1] - relative_cen_y)**2))
+                                for v in potential_pairs])
+    valid_indices = potential_pairs[jnp.where(radi2**0.5 <= cutoff_rad*array_shape[0])]
     inds_1, inds_2 = zip(*valid_indices)
     f_noise = jnp.zeros(array_shape)
     f_noise = f_noise.at[inds_1, inds_2].set(f_space[inds_1, inds_2])
@@ -148,8 +207,10 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
     --------
         n_key (jnp array) : new key for generating new random numbers
         states_i (dict) : Dict of State Number: Expected Image of State (array)
-        states_c (dict) : Dict of State Number: Dict of Orb Numbers: valid region/destination
-                          locations for The given orb (eg where it can move to when in the state) 
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: tup of:
+                          - valid region/destination locations for The given orb 
+                          (eg where it can move to when in the state) 
+                          - orb diam
         states_s (dict) : Dict of State Number: 
                             [Expected Number of itterations to stay in state, before 
                              identifying new state to transition to,
@@ -159,7 +220,7 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
     n_key, subkey = jax.random.split(c_key)
     region_rad = int(region_d/2)
     x_width, y_height = array_shape[0], array_shape[1]
-    valid_corners = jnp.array(list(product(range(x_width), range(y_height)))) - region_rad
+    valid_corners = jnp.array(list(product(range(x_width), range(y_height))))
 
     trans = 5
 
@@ -169,12 +230,12 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
 
     # Setup the distributions of how long each state stays fixed
     n_key, subkey = jax.random.split(n_key)
-    state_duration_avgs = fix_stv*(jnp.random.normal(subkey, shape=(n_states,))) + fix_avg
+    state_duration_avgs = fix_stv*(jax.random.normal(subkey, shape=(n_states,))) + fix_avg
     min_state_duration = max([0, fix_avg - fix_stv*3])
     state_duration_avgs = jnp.clip(state_duration_avgs, a_min=min_state_duration)
 
     n_key, subkey = jax.random.split(n_key)
-    state_duration_variances = fix_stv_stv*(jnp.random.normal(subkey, shape=(n_states,))) + fix_stv
+    state_duration_variances = fix_stv_stv*(jax.random.normal(subkey, shape=(n_states,))) + fix_stv
     state_duration_variances = jnp.clip(state_duration_variances, a_min=0.1)
     
     for state in range(n_states):
@@ -182,22 +243,22 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
         orb_num_to_corner = dict()
         visual = jnp.zeros(array_shape)
         n_key, subkey = jax.random.split(n_key)
-        corner_indices = jnp.random.randint(key=subkey, shape=(n_orbs,), 
-                                            minval=0, maxval=valid_corners.size)
-        corners = valid_corners[corner_indices] #corners for each orb for the given state
-
-        n_key, subkey = jax.random.split(n_key)
-        orb_diams = jnp.random.randint(key=subkey, shape=(n_orbs,), 
+        orb_diams = jax.random.randint(key=subkey, shape=(n_orbs,), 
                                        minval=lb_size, maxval=ub_size)
 
-        for orb in range(len(corners)):
+        for orb in range(len(orb_diams)):
             orb_diam = orb_diams[orb]
-            corner = corners[orb]
+            orb_valid_corners = valid_corners.copy()
+            orb_valid_corners = orb_valid_corners - int(orb_diam/2)
+            corner_index = jax.random.randint(key=subkey, shape=(1,), 
+                                            minval=0, maxval=orb_valid_corners.shape[0])
+            n_key, subkey = jax.random.split(n_key)
+            corner = orb_valid_corners[corner_index][0]
             region = get_region(array_shape, corner, region_d, orb_diam)
-            orb_num_to_corner[orb] = region
+            orb_num_to_corner[orb] = (region, orb_diam)
             img_base_weight = 1/len(region)
             for region_c in region:
-                orb_pts = get_orb_pts(array_shape, corner, orb_diam)
+                orb_pts = get_orb_pts(array_shape, region_c, orb_diam)
                 orb_xs, orb_ys = zip(*orb_pts)
                 visual = visual.at[orb_xs, orb_ys].add(img_base_weight)
 
@@ -235,11 +296,17 @@ def get_region(array_shape, corner, region_d, orb_diam, sq=True):
     canvas_h = array_shape[1]
     if sq:
         min_x = max([-orb_rad, x_cor])
-        max_x = min([x_cor + region_d, canvas_w - orb_rad])
+        max_x = min([x_cor + region_d, canvas_w - orb_rad]) #+1 on the 2nd?
         min_y = max([-orb_rad, y_cor])
         max_y = min([y_cor + region_d, canvas_h - orb_rad])
-        xs = range(min_x, max_x)
-        ys = range(min_y, max_y)
+        if min_x != max_x:
+            xs = range(min_x, max_x) #min=max possi currently; if on border
+        else:
+            xs = range(min_x, min_x+1)
+        if min_y != max_y:
+            ys = range(min_y, max_y)
+        else:
+            ys = range(min_y, min_y+1)
         region = list(product(xs, ys))
     else:
         print("NOT IMPLEMENTED")
@@ -385,6 +452,7 @@ def permute_matrix(matrix, c_key):
 # Move 1 Orb #
 ##############
 
+
 def prob_distro(epsi, corner, orb_diam, array_shape, destination, sq=True):
     """
     Calculates the probability of the given orb center transitioning to each adjacent space.
@@ -412,7 +480,7 @@ def prob_distro(epsi, corner, orb_diam, array_shape, destination, sq=True):
                                                      has prob trans_probs[i])
     """
 
-    diam = 5 #Diameter of region where orb can travel to.
+    diam = DIAM #Diameter of region where orb can travel to.
     
     valid_transitions = get_region(array_shape, corner - 2, diam, orb_diam, sq) #For corners, global
     trans_probs = jnp.zeros(valid_transitions.shape[0],)
@@ -469,7 +537,7 @@ def orb_step_arived_st(c_key, destination, *args):
     valid_transitions = get_region(*args)
     valid_trans = set([(int(loc[0]),int(loc[1])) for loc in valid_transitions])
     dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
-    valid_dests = list(dests.intersection(valid_trans)) 
+    valid_dests = list(dests.intersection(valid_trans)) #Anything within travel dist and in dest
     n_key, subkey = jax.random.split(c_key)
     trans_to_index = jax.random.randint(subkey, shape=(1,), minval=0, maxval=len(valid_dests))
     trans_to = destination[trans_to_index][0]
@@ -479,7 +547,7 @@ def orb_step_arived_st(c_key, destination, *args):
 def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arrived_prev, 
                    sq=True):
     """
-    Moves one orb one state
+    Moves one orb one step
 
     Inputs:
     --------
@@ -500,12 +568,12 @@ def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arri
     --------
         n_key (jnp array) : new key for generating new random numbers
         trans_to (jnp array) : (x,y) corner to transit to.
-
+        arrived_to (bool) : Whether the orb arrived at its destination.
     """
     corner_t = (int(corner[0]), int(corner[1]))
     dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
     if arrived_prev:
-        my_args = [array_shape, corner, 1, orb_diam, sq]
+        my_args = [array_shape, corner, DIAM, orb_diam, sq]
         n_key, trans_to = orb_step_arived_st(c_key, destination, *my_args)
     else:
         my_args = [epsi, corner, orb_diam, array_shape, destination, sq]
@@ -513,6 +581,60 @@ def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arri
     trans_to_t = (int(trans_to[0]), int(trans_to[1]))
     arrived_to = trans_to_t in dests
     return n_key, trans_to, arrived_to
+
+
+def all_orbs_one_st(c_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+                    sq=True):
+    """
+    Moves all orbs one step, vmapped for hopefully speed.
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                            lowest x, lowest y valued corner a box around the 
+                            orb at index i would be
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: tup of:
+                          - valid region/destination locations for The given orb 
+                          (eg where it can move to when in the state) 
+                          - orb diam
+        target_state (int) : State number that you're progressing towards, a key for states_c
+        array_shape (tup) : shape of the canvas 
+        epsi (float in [.5,1]) : Probability of an orb moving towards its destination 
+                                 (in aggregate)
+        arrived_prevs (jnp arr) : Array of whether each orb has arrived at its destination
+        sq (bool) : If true, makes regions that are squares, 
+                    If false NOT IMPLEMENTED, make plus or circle shapes regions
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        corners (jnp array) : orb i's (x,y) corner it transited to.
+        arrived_to (jnp array) : Whether orb i reached its destination
+    """
+
+    dests, diams = get_diameters_and_dests(states_c, target_state)
+
+    arr_indices = (0, 0, 0, None, 0, None, 0) #array shape and epsi are const for all
+    n_keys = jnp.array(jax.random.split(c_key, num=5))
+    #c_key, corner, destination, array_shape, orb_diam, epsi, arrived_prev, 
+    #               sq=True
+    vmapped_one_orb_one_st = jax.vmap(one_orb_one_st, arr_indices, 0)
+    n_keys, corners, arrived_to = vmapped_one_orb_one_st(
+        n_keys, corners, dests, array_shape, diams, epsi, arrived_prevs)
+    
+    n_key = jax.random.split(n_keys[0])[0] #Weirdly, the inner set is 2 keys
+    return n_key, corners, arrived_to
+
+
+def get_diameters_and_dests(states_c, target_state):
+    """
+    Gets the diameters and destinations of the target states, ordered by orb num
+    """
+    destinations = states_c[target_state]
+    orb_info_l = sorted([(orb, dest) for orb, dest in destinations.items()])
+    dests = jnp.array([dest[1][0] for dest in orb_info_l])
+    diams = jnp.array([dest[1][1] for dest in orb_info_l])
+    return dests, diams
 
 
 #############################
@@ -524,21 +646,34 @@ def noise_visual():
     """
     Creates my visual comparing my rotation to regular noise items
     """
-    array_shape = (100,100)
+    xmin, xmax, ymin, ymax = 0, 20, 20, 0 
+    array_shape = (200,200)
     noise_rot, f_noise_rot, n_key = gen_low_freq_noise_rot(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
+                       cutoff=0.025, r_cutoff=False, cutoff_bds=[0.02, 0.02])
+    noise_quar, f_noise_quar, n_key = gen_low_freq_noise_quarter(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
                        cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
     noise, f_noise, n_key = gen_low_freq_noise(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
                        cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
     
-    fig, axs = plt.subplots(2,2)
-    axs[0, 0].imshow(noise_rot, cmap='hot', interpolation='nearest')
-    axs[0, 0].set_title('Rotational Noise')
-    axs[0, 1].imshow(f_noise_rot, cmap='hot', interpolation='nearest')
-    axs[0, 1].set_title('Kept Fourier Space: Rot')
-    axs[1, 0].imshow(noise, cmap='hot', interpolation='nearest')
-    axs[1, 0].set_title('Corners Noise')
-    axs[1, 1].imshow(f_noise, cmap='hot', interpolation='nearest')
-    axs[1, 1].set_title('Kept Fourier Space: Corners')
+    fig, axs = plt.subplots(3,2)
+    axs[0, 0].imshow(noise_quar, cmap='hot', interpolation='nearest')
+    axs[0, 0].set_title('Quarter Noise')
+    axs[0, 1].imshow(f_noise_quar, cmap='hot', interpolation='nearest')
+    axs[0, 1].set_title('Kept Fourier Space: Quarter Circle')
+    axs[0, 1].set_xlim([xmin, xmax])
+    axs[0, 1].set_ylim([ymin, ymax])
+    axs[1, 0].imshow(noise_rot, cmap='hot', interpolation='nearest')
+    axs[1, 0].set_title('Circle Noise')
+    axs[1, 1].imshow(f_noise_rot, cmap='hot', interpolation='nearest')
+    axs[1, 1].set_title('Kept Fourier Space: Circle')
+    axs[1, 1].set_xlim([xmin, xmax])
+    axs[1, 1].set_ylim([ymin, ymax])
+    axs[2, 0].imshow(noise, cmap='hot', interpolation='nearest')
+    axs[2, 0].set_title('Corners Noise')
+    axs[2, 1].imshow(f_noise, cmap='hot', interpolation='nearest')
+    axs[2, 1].set_title('Kept Fourier Space: Corners')
+    axs[2, 1].set_xlim([xmin, xmax])
+    axs[2, 1].set_ylim([ymin, ymax])
     plt.show()
 
 
@@ -548,9 +683,10 @@ def prob_distro_vis(epsi=.8):
     """
     array_shape = (20, 20)
     orb_diam = 8
-    corner = jnp.array([19-int(orb_diam/2),10]) #Side case
-    corner = jnp.array([19-int(orb_diam/2),19-int(orb_diam/2)])
-    
+    #corner = jnp.array([19-int(orb_diam/2),10]) #Side case
+    #corner = jnp.array([19-int(orb_diam/2),19-int(orb_diam/2)])
+    corner = jnp.array([10,10])
+
     destination = jnp.array(list(product(range(1,5),range(1,5))))
     dest_xs, dest_ys = zip(*destination)
     valid_transitions, trans_probs = prob_distro(\
@@ -564,7 +700,10 @@ def prob_distro_vis(epsi=.8):
     plt.show()
 
 
-def state_moving_visual(c_key, save_folder, n_steps=100):
+def orb_moving_visual(c_key, save_folder, n_steps=100):
+    """
+    Creates the visuals of a single orb moving to its destination.
+    """
     #Inits
     val = 0 #Value for the orb and dest to show up
     n_key = c_key
@@ -580,7 +719,6 @@ def state_moving_visual(c_key, save_folder, n_steps=100):
     arrived_prev = arrived_to
     trans_to = corner
     corners = [trans_to]
-    #for i in range(n_steps):
     for i in range(n_steps):
         canvas = jnp.ones(array_shape)
         n_key, trans_to, arrived_prev = one_orb_one_st(
@@ -597,7 +735,7 @@ def state_moving_visual(c_key, save_folder, n_steps=100):
 
         canvas = canvas.at[cor_og_xs, cor_og_ys].set(.7) #Draw original orb
         canvas = canvas.at[xs_orb, ys_orb].set(val) #Draw current orb
-        canvas = canvas.at[dest_xs, dest_ys].set(val) #Draw Dest
+        canvas = canvas.at[dest_xs, dest_ys].set(.1) #Draw Dest
         canvas = canvas.at[cor_xs, cor_ys].set(0.5) #Draw corners of all time
         canvas = canvas.at[trans_to[0], trans_to[1]].set(0.2) #Draw current corner
 
@@ -607,13 +745,112 @@ def state_moving_visual(c_key, save_folder, n_steps=100):
         plt.savefig(fname)
 
 
+def visualize_states(c_key, states_folder):
+    n_states = 5
+    array_shape = (100,100)
+    lb_orbs = 8
+    ub_orbs = 8
+    n_key, states_i, states_c, states_f, trans = gen_states(
+        c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
+        fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5)
+    
+    for state, expected_img in states_i.items():
+        plt.imshow(expected_img, cmap='hot', interpolation='nearest')
+        plt.axis([0, array_shape[0], 0, array_shape[1]])
+        plt.colorbar()
+        fname = states_folder%state
+        plt.savefig(fname)
+        plt.clf()
+
+
+def vis_one_step(c_key):
+
+    n_states = 5
+    array_shape = (100,100)
+    lb_orbs = 5
+    ub_orbs = 5
+    n_key, states_i, states_c, states_f, trans = gen_states(
+        c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
+        fix_stv_stv=2, lb_size=15, ub_size=20, region_d=5)
+    
+    corners = jnp.array([[25,25], [25, 75], [50,50],[75,25],[75,75]])
+    target_state = 3
+    epsi = 0.8
+    arrived_prevs = jnp.array([False, False, False, False, False])
+
+    n_key, n_corners, arrived_to = all_orbs_one_st(
+        c_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+        sq=True)
+    
+    canvas = jnp.ones(array_shape)
+    dests, diams = get_diameters_and_dests(states_c, target_state)
+    for i in range(len(diams)):
+        orb_diam = diams[i]
+        corner = corners[i]
+        trans_to = n_corners[i]
+        og_orb_coords = get_orb_pts(array_shape, corner, orb_diam)
+        orb_coords = get_orb_pts(array_shape, trans_to, orb_diam)
+        cor_og_xs, cor_og_ys = zip(*og_orb_coords)
+        xs_orb, ys_orb = zip(*orb_coords)
+
+        canvas = canvas.at[cor_og_xs, cor_og_ys].set(.7) #Draw original orb
+        canvas = canvas.at[xs_orb, ys_orb].set(0) #Draw current orb
+
+    plt.imshow(canvas, cmap='hot', interpolation='nearest')
+    plt.axis([0, array_shape[0], 0, array_shape[1]])
+    #fname = save_folder%i
+    #plt.savefig(fname)
+    plt.show()
+    
+
+def vis_state_trans(c_key, save_folder):
+    n_iter = 200
+    n_states = 5
+    array_shape = (100,100)
+    lb_orbs = 5
+    ub_orbs = 5
+    n_key, states_i, states_c, states_f, trans = gen_states(
+        c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
+        fix_stv_stv=2, lb_size=15, ub_size=20, region_d=5)
+    
+    corners = jnp.array([[25,25], [25, 75], [50,50],[75,25],[75,75]])
+    target_state = 3
+    epsi = 0.8
+    arrived_prevs = jnp.array([False, False, False, False, False])
+
+    n_key = c_key
+    n_corners = corners
+    dests, diams = get_diameters_and_dests(states_c, target_state)
+
+    for j in n_iter:
+
+        n_key, n_corners, arrived_prevs = all_orbs_one_st(
+            n_key, n_corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+            sq=True)
+        
+        canvas = jnp.ones(array_shape)
+        for i in range(len(diams)):
+            orb_diam = diams[i]
+            corner = corners[i]
+            trans_to = n_corners[i]
+            og_orb_coords = get_orb_pts(array_shape, corner, orb_diam)
+            orb_coords = get_orb_pts(array_shape, trans_to, orb_diam)
+            cor_og_xs, cor_og_ys = zip(*og_orb_coords)
+            xs_orb, ys_orb = zip(*orb_coords)
+
+            canvas = canvas.at[xs_orb, ys_orb].set(0) #Draw current orb
+
+        plt.imshow(canvas, cmap='hot', interpolation='nearest')
+        plt.axis([0, array_shape[0], 0, array_shape[1]])
+        fname = save_folder%i
+        plt.savefig(fname)
+
+
 if __name__ == "__main__":
     array_shape = (100,100)
-    """
-    noise, f_noise, n_key = gen_low_freq_noise(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
-                       cutoff=0.15, r_cutoff=False, cutoff_bds=[0.02, 0.02])
-    plt.imshow(noise, cmap='hot', interpolation='nearest')
-    plt.show()
-    """
-    #prob_distro_vis(epsi=0.8)
-    state_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestSP, n_steps=5)
+    #orb_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestP, n_steps=100)
+    #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP)
+    #noise_visual()
+    #prob_distro_vis(epsi=.8)
+    vis_one_step(c_key=MY_KEY)
+    #vis_state_trans(c_key=MY_KEY, save_folder=my_vars.orbsToStateP)
