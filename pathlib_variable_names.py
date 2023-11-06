@@ -5,7 +5,7 @@ image_paths = ["Images"]
 zenodo_paths = ["zenodoFiles"]
 small_sample_paths = ["SMALL_SAMPLE"]
 full_sample_paths = ["Provided", "FULL_SAMPLE"]
-synth_data_paths = ["Thesis", "mastersThesisPython", "syntheticData"]
+synth_data_paths = ["Created", "mastersThesisPython", "syntheticData"]
 
 p = pathlib.Path(__file__)
 print()

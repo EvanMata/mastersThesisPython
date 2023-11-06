@@ -1147,7 +1147,7 @@ if __name__ == "__main__":
                     lb_orbs=12, ub_orbs=12, fix_avg=20, fix_stv=4, 
                     fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
                     save_loc = my_vars.generatedDataPath, in_parts=True,
-                    part_step=3, load_prev=False, start_load=1)
+                    part_step=2, load_prev=False, start_load=1)
     #"""
     #print(states_f)
     
