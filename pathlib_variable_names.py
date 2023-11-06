@@ -44,6 +44,8 @@ stateImgsF = imagesPath.joinpath( "stateExpectations" )
 stateImgsP = str(stateImgsF.joinpath( "state_%d_expectation" ))
 orbsToStateF = imagesPath.joinpath( "orbsToState" )
 orbsToStateP = str(orbsToStateF.joinpath( "state_moving_frame_%d" ))
+rawArraysF = imagesPath.joinpath( "orbArrays" )
+rawArraysP = str(rawArraysF.joinpath( "orb_array_frame_%d" ))
 
 
 

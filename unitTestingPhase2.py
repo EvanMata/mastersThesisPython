@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from jax import random
 from pathlib import Path
-from itertools import combinations
+from itertools import combinations, product
 
 #sys.path.append('./python_provided_code/')
 #from fth_reconstruction import reconstructCDI as my_fft
@@ -276,6 +276,75 @@ def t_vmapped_2():
     print(m_v_f)
 
 
+def t_vmapped_3():
+    def split_f(a, which):
+        if which:
+            return 5*a
+        else:
+            return 10*a
+    v_f = jax.vmap(split_f, (0, 0), 0)
+    my_truths = jnp.array([True,True,False])
+    my_as = jnp.array([1,2,2])
+    m_v_f = v_f(my_as, my_truths)
+    print(m_v_f)
+
+
+def comp_vmap_3():
+    def f1(a):
+        return 5*a
+    def f2(a):
+        return 10*a
+    my_as = jnp.array([1,2,2,3])
+    m_v_f = jnp.zeros((3,))
+    my_truths = jnp.array([True,True,False,False])
+    f1_as = my_as[my_truths]
+    f2_as = my_as[~my_truths]
+    f1s = jax.vmap(f1, (0))(f1_as)
+    f2s = jax.vmap(f2, (0))(f2_as)
+    print(f1s)
+    print(f2s)
+    m_v_f = jnp.zeros((len(my_as), ))
+    m_v_f = m_v_f.at[jnp.where(my_truths)].set(f1s)
+    m_v_f = m_v_f.at[jnp.where(~my_truths)].set(f2s)
+    print(m_v_f)
+
+
+def comp_vmap_4():
+    def f1(a):
+        return 5*a, 1*a
+    def f2(a):
+        return 10*a, 20*a
+    my_as = jnp.array([1,2,2,3])
+    m_v_f = jnp.zeros((3,))
+    my_truths = jnp.array([True,True,False,False])
+    f1_as = my_as[my_truths]
+    f2_as = my_as[~my_truths]
+    f1s, f1sb = jax.vmap(f1, (0), (0,0))(f1_as)
+    f2s, f2sb = jax.vmap(f2, (0), (0,0))(f2_as)
+    m_v_f = jnp.zeros((len(my_as), ))
+    m_v_f_b = jnp.zeros((len(my_as), ))
+    m_v_f = m_v_f.at[jnp.where(my_truths)].set(f1s)
+    m_v_f = m_v_f.at[jnp.where(~my_truths)].set(f2s)
+    m_v_f_b = m_v_f_b.at[jnp.where(my_truths)].set(f1sb)
+    m_v_f_b = m_v_f_b.at[jnp.where(~my_truths)].set(f2sb)
+    print(m_v_f)
+    print(m_v_f_b)
+
+
+def t_vmap_region():
+    x_mins = jnp.array([1,2,3])
+    x_maxs = jnp.array([4,5,5])
+    y_mins = jnp.array([1,1,1])
+    y_maxs = jnp.array([1,2,2])
+    def create_region(x_min, x_max, y_min, y_max):
+        xs = jnp.arange(x_min, x_max, 1)
+        ys = jnp.arange(y_min, y_max, 1)
+        region = product(xs, ys)
+        return region
+
+    vmaped_region = jax.vmap(create_region, (0,0,0,0), 0)
+    regions = vmaped_region(x_mins, x_maxs, y_mins, y_maxs)
+
 def gen_random_uni_arr(my_shape=(1000,)):
     key = random.PRNGKey(758493)  # Random seed is explicit in JAX
     return random.uniform(key, shape=my_shape)
@@ -367,4 +436,7 @@ if __name__ == "__main__":
     #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=True)
     #t_generate_holo_calculated_mode(my_mode=' 1-1', helicity=1, useAvg=False)
     #t_orb(center_on_edge=True)
-    t_vmapped_2()
+    #t_vmapped_2()
+    #t_vmapped_3()
+    #comp_vmap_4()
+    t_vmap_region()

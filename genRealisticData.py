@@ -1,15 +1,19 @@
 import jax 
+import time
 import jax.numpy as jnp
 import networkx as nx
 import matplotlib.pyplot as plt
 
 from itertools import product
 from scipy.spatial.distance import cdist
+from sinkhorn_knopp import sinkhorn_knopp as skp
 
 import pathlib_variable_names as my_vars
 
 MY_KEY = jax.random.PRNGKey(0)
 DIAM = 5 #Diameter, in pixels, of region an orb can take 1 step in. =1 means unmoving
+
+jnp.set_printoptions(precision=3)
 
 ####################
 # Noise Generation #
@@ -215,14 +219,11 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
                             [Expected Number of itterations to stay in state, before 
                              identifying new state to transition to,
                              Stv of Number of itterations to stay in state]
-        trans (jnp array) : Jax array of transition probabilities between states
     """
     n_key, subkey = jax.random.split(c_key)
     region_rad = int(region_d/2)
     x_width, y_height = array_shape[0], array_shape[1]
     valid_corners = jnp.array(list(product(range(x_width), range(y_height))))
-
-    trans = 5
 
     states_i = dict()
     states_c = dict()
@@ -255,12 +256,14 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
             n_key, subkey = jax.random.split(n_key)
             corner = orb_valid_corners[corner_index][0]
             region = get_region(array_shape, corner, region_d, orb_diam)
-            orb_num_to_corner[orb] = (region, orb_diam)
+            orb_num_to_corner[orb] = (region, orb_diam) #Make region tuple?
             img_base_weight = 1/len(region)
             for region_c in region:
                 orb_pts = get_orb_pts(array_shape, region_c, orb_diam)
                 orb_xs, orb_ys = zip(*orb_pts)
                 visual = visual.at[orb_xs, orb_ys].add(img_base_weight)
+
+        visual = jnp.clip(visual, a_max=1)
 
         states_i[state] = visual
         states_c[state] = orb_num_to_corner
@@ -268,7 +271,7 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
         states_f[state] = (state_dur_avg, state_dur_stv)
 
 
-    return n_key, states_i, states_c, states_f, trans
+    return n_key, states_i, states_c, states_f
 
 
 def get_region(array_shape, corner, region_d, orb_diam, sq=True):
@@ -289,16 +292,19 @@ def get_region(array_shape, corner, region_d, orb_diam, sq=True):
     Returns:
         region (jnp array) : jax array of [x,y] coords in region
     """
-    orb_rad = int(orb_diam/2)
+    #orb_rad = int(orb_diam/2)
+    orb_rad = orb_diam/2
+    orb_rad = orb_rad.astype(int)
     x_cor = corner[0]
     y_cor = corner[1]
     canvas_w = array_shape[0]
     canvas_h = array_shape[1]
     if sq:
-        min_x = max([-orb_rad, x_cor])
-        max_x = min([x_cor + region_d, canvas_w - orb_rad]) #+1 on the 2nd?
-        min_y = max([-orb_rad, y_cor])
-        max_y = min([y_cor + region_d, canvas_h - orb_rad])
+        min_x = jnp.max(jnp.array([-orb_rad, x_cor]))
+        max_x = jnp.min(jnp.array([x_cor + region_d, canvas_w - orb_rad])) + 1
+        min_y = jnp.max(jnp.array([-orb_rad, y_cor]))
+        max_y = jnp.min(jnp.array([y_cor + region_d, canvas_h - orb_rad])) + 1
+        """
         if min_x != max_x:
             xs = range(min_x, max_x) #min=max possi currently; if on border
         else:
@@ -307,6 +313,11 @@ def get_region(array_shape, corner, region_d, orb_diam, sq=True):
             ys = range(min_y, max_y)
         else:
             ys = range(min_y, min_y+1)
+        xs = range(min_x, max_x)
+        ys = range(min_y, max_y)
+        """
+        xs = jnp.arange(min_x, max_x, 1)
+        ys = jnp.arange(min_y, max_y, 1)
         region = list(product(xs, ys))
     else:
         print("NOT IMPLEMENTED")
@@ -368,6 +379,11 @@ def gen_graph(c_key, n_states, p, self_loops=True):
         p (float in (0,1)) : Probability of adding an edge for the erdas-reini construction
         self_loops (bool) : Whether to include the possibility of a state transitioning 
                             back to itself. 
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        adj_mat (jnp array) : doubly stochastic matrix thats ~mostly symetric 
+                                (up to ~3 orders of magnitude)
     
     """
     adj_mat = jnp.zeros((n_states, n_states))
@@ -376,35 +392,29 @@ def gen_graph(c_key, n_states, p, self_loops=True):
     er_graph = jnp.array(nx.to_numpy_array(er_graph))
     fully_connected, n_key = random_fully_connected(n_states, n_key)
     connected_indices = jnp.logical_or(fully_connected, er_graph)
+
     if self_loops:
-        id = jnp.identity(n_states)
-        connected_indices = jnp.logical_or(connected_indices, id)
-    connected_indices_tri1 = jnp.triu(connected_indices)
-    num_edges_tri1 = jnp.sum(connected_indices)
+        n_key, subkey = jax.random.split(n_key)
+        diag_inds = jnp.arange(n_states)
+        diag_vals = jax.random.uniform(subkey, shape=(n_states, ), maxval=0.25)    
+    
+    connected_indices_tri1 = jnp.triu(connected_indices, k=1)
+    num_edges_tri1 = jnp.sum(connected_indices_tri1)
 
     n_key, subkey = jax.random.split(n_key)
-    pre_adjusted_edge_weights = jnp.random.normal(subkey, shape=(num_edges_tri1, ))
-    inds_for_wieghts = jnp.where(connected_indices_tri1)
+    pre_adjusted_edge_weights = jax.random.uniform(subkey, shape=(num_edges_tri1, ))
+    inds_for_wieghts = jnp.where(connected_indices_tri1 == 1)
     adj_mat = adj_mat.at[inds_for_wieghts].set(pre_adjusted_edge_weights)
+    adj_mat = adj_mat + adj_mat.T
+    if self_loops:
+        adj_mat = adj_mat.at[diag_inds, diag_inds].set(diag_vals)
 
-    #Now make it dobuley stochastic
-    #softmax row 0
-    #softmax row 1 from 1-n (eg not including 0) - multiply by (1-M[0,1]), so that 
-    # it adds with row 0 value 1
-    # repeat all the way down
-    # Is top right much more likely to be larger values? Probabily?
-
-    top_r = jnp.triu(adj_mat, k=1)
-    adj_mat = 5
-
-    #Dobule stochastic times doubly stochastic is doubly stochastic
-    #So make my random fully connected graph, 
-    #
-    
-
-    #add [k,k] + top_right + top_right.T
-
-    #random_graph = jnp.clip(random_graph) #No, Softmax it instead to make it row stochastic
+    sk = skp.SinkhornKnopp()
+    adj_mat = sk.fit(adj_mat)
+    adj_mat = jnp.array(adj_mat)
+    #diags = adj_mat[diag_inds, diag_inds]
+    #print(diags)
+    return n_key, adj_mat
 
 
 def random_fully_connected(n_states, c_key):
@@ -433,7 +443,7 @@ def gen_perm(n_states, c_key):
     Generates a single random permutation matrix
     """
     n_key, subkey = jax.random.split(c_key)
-    id = jnp.identiy(n_states)
+    id = jnp.identity(n_states)
     perm = jax.random.shuffle(subkey, id)
     return perm, n_key
 
@@ -453,7 +463,7 @@ def permute_matrix(matrix, c_key):
 ##############
 
 
-def prob_distro(epsi, corner, orb_diam, array_shape, destination, sq=True):
+def prob_distro(destination, array_shape, corner, orb_diam, epsi, sq=True):
     """
     Calculates the probability of the given orb center transitioning to each adjacent space.
     Sets prob to go to a closer sq as epsi/num closer places 
@@ -480,6 +490,8 @@ def prob_distro(epsi, corner, orb_diam, array_shape, destination, sq=True):
                                                      has prob trans_probs[i])
     """
 
+    #Needs Corner and Epsi and dest others pass to get region.
+
     diam = DIAM #Diameter of region where orb can travel to.
     
     valid_transitions = get_region(array_shape, corner - 2, diam, orb_diam, sq) #For corners, global
@@ -498,7 +510,7 @@ def prob_distro(epsi, corner, orb_diam, array_shape, destination, sq=True):
     return valid_transitions, trans_probs
 
 
-def orb_step_toward_st(c_key, *args):
+def orb_step_toward_st(c_key, destination, array_shape, corner, orb_diam, epsi, sq=True):
     """
     Moves 1 orb 1 step closer to a state. NOT for when already in a state.
 
@@ -513,12 +525,13 @@ def orb_step_toward_st(c_key, *args):
         trans_to (jnp array) : array of x,y value for new corner
     """
     n_key, subkey = jax.random.split(c_key)
-    valid_transitions, trans_probs = prob_distro(*args)
+    valid_transitions, trans_probs = prob_distro(destination, array_shape, 
+                                                 corner, orb_diam, epsi, sq)
     trans_to = jax.random.choice(subkey, valid_transitions, p=trans_probs)
     return n_key, trans_to
 
 
-def orb_step_arived_st(c_key, destination, *args):
+def orb_step_arived_st(c_key, destination, array_shape, corner, orb_diam, sq=True):
     """
     Picks where the orb moves if it has already arrived at its destination
     Should update this if destinations get large, so that jumps aren't more than one step.
@@ -526,17 +539,18 @@ def orb_step_arived_st(c_key, destination, *args):
     Inputs:
     --------
         c_key (jnp array) : Jax array/Current Key for generating random numbers
-        destination (jnp array) : states_c[state][orb] value, an array of tuples of 
+        destination (jnp array) : states_c[state][orb][0] value, an array of tuples of 
                     corner locations that the orb is heading towards
-        *args (lst) : args for get_region, eg [array_shape, corner, 1, orb_diam, sq]
+        *args (lst) : args for get_region, eg [array_shape, corner, DIAM, orb_diam, sq]
     Returns:
     -------
         n_key (jnp array) : new key for generating new random numbers
         trans_to (jnp array) : (x,y) corner to transit to.
     """
-    valid_transitions = get_region(*args)
-    valid_trans = set([(int(loc[0]),int(loc[1])) for loc in valid_transitions])
-    dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
+    diam = DIAM
+    valid_transitions = get_region(array_shape, corner, diam, orb_diam, sq)
+    valid_trans = set([(loc[0].astype(int),loc[1].astype(int)) for loc in valid_transitions])
+    dests = set([(loc[0].astype(int),loc[1].astype(int)) for loc in destination])
     valid_dests = list(dests.intersection(valid_trans)) #Anything within travel dist and in dest
     n_key, subkey = jax.random.split(c_key)
     trans_to_index = jax.random.randint(subkey, shape=(1,), minval=0, maxval=len(valid_dests))
@@ -545,7 +559,7 @@ def orb_step_arived_st(c_key, destination, *args):
 
 
 def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arrived_prev, 
-                   sq=True):
+                   sq=True, jitv=False):
     """
     Moves one orb one step
 
@@ -570,15 +584,20 @@ def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arri
         trans_to (jnp array) : (x,y) corner to transit to.
         arrived_to (bool) : Whether the orb arrived at its destination.
     """
-    corner_t = (int(corner[0]), int(corner[1]))
-    dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
-    if arrived_prev:
-        my_args = [array_shape, corner, DIAM, orb_diam, sq]
-        n_key, trans_to = orb_step_arived_st(c_key, destination, *my_args)
+    if jitv:
+        dests = set([(loc[0].astype(int),loc[1].astype(int)) for loc in destination])
     else:
-        my_args = [epsi, corner, orb_diam, array_shape, destination, sq]
-        n_key, trans_to = orb_step_toward_st(c_key, *my_args)
-    trans_to_t = (int(trans_to[0]), int(trans_to[1]))
+        dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
+    if arrived_prev:
+        n_key, trans_to = orb_step_arived_st(c_key, destination, array_shape, 
+                                             corner, orb_diam, sq)
+    else:
+        n_key, trans_to = orb_step_toward_st(c_key, destination, array_shape, 
+                                             corner, orb_diam, epsi, sq)
+    if jitv:
+        trans_to_t = (trans_to[0].astype(int), trans_to[1].astype(int))
+    else:
+        trans_to_t = (int(trans_to[0]), int(trans_to[1]))
     arrived_to = trans_to_t in dests
     return n_key, trans_to, arrived_to
 
@@ -587,6 +606,8 @@ def all_orbs_one_st(c_key, corners, states_c, target_state, array_shape, epsi, a
                     sq=True):
     """
     Moves all orbs one step, vmapped for hopefully speed.
+    INCOMPLETE - Would need to adjust get_region to be jit-able 
+                    and all subsequent functions which rely on it to use this
 
     Inputs:
     --------
@@ -608,32 +629,100 @@ def all_orbs_one_st(c_key, corners, states_c, target_state, array_shape, epsi, a
     Returns:
     --------
         n_key (jnp array) : new key for generating new random numbers
-        corners (jnp array) : orb i's (x,y) corner it transited to.
-        arrived_to (jnp array) : Whether orb i reached its destination
-    """
+        out_corners (jnp array) : orb i's (x,y) corner it transited to.
+        arrived_tos (jnp array) : Whether orb i reached its destination
+    """   
 
-    dests, diams = get_diameters_and_dests(states_c, target_state)
+    dests, diams = get_diameters_and_dests(states_c, target_state, jitv=True)
 
     arr_indices = (0, 0, 0, None, 0, None, 0) #array shape and epsi are const for all
-    n_keys = jnp.array(jax.random.split(c_key, num=5))
-    #c_key, corner, destination, array_shape, orb_diam, epsi, arrived_prev, 
-    #               sq=True
-    vmapped_one_orb_one_st = jax.vmap(one_orb_one_st, arr_indices, 0)
-    n_keys, corners, arrived_to = vmapped_one_orb_one_st(
-        n_keys, corners, dests, array_shape, diams, epsi, arrived_prevs)
+    n_keys = jnp.array(jax.random.split(c_key, num=len(corners)))
+
+    #Split into arrived and not-yet-arrived groups.
+    arr_keys, tow_keys = n_keys[arrived_prevs], n_keys[~arrived_prevs]
+    arr_dests, tow_dests = dests[arrived_prevs], dests[~arrived_prevs]
+    arr_diams, tow_diams = diams[arrived_prevs], diams[~arrived_prevs]
+    arr_corners, tow_corners = corners[arrived_prevs], corners[~arrived_prevs]
     
-    n_key = jax.random.split(n_keys[0])[0] #Weirdly, the inner set is 2 keys
-    return n_key, corners, arrived_to
+    arrived_indices = (0, 0, None, 0, 0, None)
+    toward_indices = (0, 0, None, 0, 0, None, None)
+
+    vmapped_arrived = jax.vmap(orb_step_arived_st, arrived_indices, (0,0))
+    vmapped_toward = jax.vmap(orb_step_toward_st, toward_indices, (0,0))
+
+    n_keys_arr, corners_arr, arrived_to_arr = vmapped_arrived(
+        arr_keys, arr_dests, array_shape, arr_corners, arr_diams, sq)
+    n_keys_tow, corners_tow, arrived_to_tow = vmapped_toward(
+        tow_keys, tow_dests, array_shape, tow_corners, tow_diams, epsi, sq)
+
+    arrived_tos = jnp.zeros((len(corners),))
+    arrived_tos = arrived_tos.at[jnp.where(arrived_prevs)].set(arrived_to_arr)
+    arrived_tos = arrived_tos.at[jnp.where(~arrived_prevs)].set(arrived_to_tow)
+    out_corners = jnp.zeros(corners.shape)
+    out_corners = out_corners.at[jnp.where(arrived_prevs)].set(corners_arr)
+    out_corners = out_corners.at[jnp.where(~arrived_prevs)].set(corners_tow)
+
+    n_key = jax.random.split(n_keys_arr[0])[0] #Weirdly, the inner set is 2 keys
+    return n_key, out_corners, arrived_tos
 
 
-def get_diameters_and_dests(states_c, target_state):
+def all_orbs_one_st_lazy(c_key, corners, states_c, target_state, 
+                         array_shape, epsi, arrived_prevs, sq=True):
+    """
+    Moves all orbs one step, No Vmapping, so slow. 
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                            lowest x, lowest y valued corner a box around the 
+                            orb at index i would be
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: tup of:
+                          - valid region/destination locations for The given orb 
+                          (eg where it can move to when in the state) 
+                          - orb diam
+        target_state (int) : State number that you're progressing towards, a key for states_c
+        array_shape (tup) : shape of the canvas 
+        epsi (float in [.5,1]) : Probability of an orb moving towards its destination 
+                                 (in aggregate)
+        arrived_prevs (jnp arr) : Array of whether each orb has arrived at its destination
+        sq (bool) : If true, makes regions that are squares, 
+                    If false NOT IMPLEMENTED, make plus or circle shapes regions
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        out_corners (jnp array) : orb i's (x,y) corner it transited to.
+        arrived_tos (jnp array) : Whether orb i reached its destination
+    """
+    out_corners = []
+    arrived_tos = []
+    n_key, subkey = jax.random.split(c_key)
+    dests, diams = get_diameters_and_dests(states_c, target_state)
+    for i in range(len(dests)):
+        destination = dests[i]
+        orb_diam = diams[i]
+        corner = corners[i]
+        arrived_prev = arrived_prevs[i]
+        subkey, trans_to, arrived_to = one_orb_one_st(subkey, corner, destination, 
+                                        array_shape, orb_diam, epsi, arrived_prev, sq=True)
+        out_corners.append(trans_to)
+        arrived_tos.append(arrived_to)
+        
+    return n_key, out_corners, arrived_tos
+        
+
+def get_diameters_and_dests(states_c, target_state, jitv=False):
     """
     Gets the diameters and destinations of the target states, ordered by orb num
     """
     destinations = states_c[target_state]
     orb_info_l = sorted([(orb, dest) for orb, dest in destinations.items()])
-    dests = jnp.array([dest[1][0] for dest in orb_info_l])
-    diams = jnp.array([dest[1][1] for dest in orb_info_l])
+    if jitv:
+        dests = jnp.array([dest[1][0] for dest in orb_info_l])
+        diams = jnp.array([dest[1][1] for dest in orb_info_l])
+    else:
+        dests = [dest[1][0] for dest in orb_info_l]
+        diams = [dest[1][1] for dest in orb_info_l]
     return dests, diams
 
 
@@ -647,7 +736,7 @@ def noise_visual():
     Creates my visual comparing my rotation to regular noise items
     """
     xmin, xmax, ymin, ymax = 0, 20, 20, 0 
-    array_shape = (200,200)
+    array_shape = (100,100)
     noise_rot, f_noise_rot, n_key = gen_low_freq_noise_rot(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
                        cutoff=0.025, r_cutoff=False, cutoff_bds=[0.02, 0.02])
     noise_quar, f_noise_quar, n_key = gen_low_freq_noise_quarter(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
@@ -750,7 +839,7 @@ def visualize_states(c_key, states_folder):
     array_shape = (100,100)
     lb_orbs = 8
     ub_orbs = 8
-    n_key, states_i, states_c, states_f, trans = gen_states(
+    n_key, states_i, states_c, states_f = gen_states(
         c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
         fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5)
     
@@ -763,13 +852,13 @@ def visualize_states(c_key, states_folder):
         plt.clf()
 
 
-def vis_one_step(c_key):
+def vis_one_step(c_key, lazy=True):
 
     n_states = 5
     array_shape = (100,100)
     lb_orbs = 5
     ub_orbs = 5
-    n_key, states_i, states_c, states_f, trans = gen_states(
+    n_key, states_i, states_c, states_f = gen_states(
         c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
         fix_stv_stv=2, lb_size=15, ub_size=20, region_d=5)
     
@@ -778,9 +867,17 @@ def vis_one_step(c_key):
     epsi = 0.8
     arrived_prevs = jnp.array([False, False, False, False, False])
 
-    n_key, n_corners, arrived_to = all_orbs_one_st(
-        c_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
-        sq=True)
+    s = time.time()
+    if lazy:
+        n_key, n_corners, arrived_to = all_orbs_one_st_lazy(
+            c_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+            sq=True)
+    else:
+        n_key, n_corners, arrived_to = all_orbs_one_st(
+            c_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+            sq=True)
+    e = time.time()
+    print("Time to move all orbs 1 step: ", e - s)
     
     canvas = jnp.ones(array_shape)
     dests, diams = get_diameters_and_dests(states_c, target_state)
@@ -803,47 +900,84 @@ def vis_one_step(c_key):
     plt.show()
     
 
-def vis_state_trans(c_key, save_folder):
+def vis_state_trans(c_key, img_save_folder, arr_save_folder, lazy=True):
     n_iter = 200
     n_states = 5
-    array_shape = (100,100)
-    lb_orbs = 5
-    ub_orbs = 5
-    n_key, states_i, states_c, states_f, trans = gen_states(
+    array_shape = (120,120)
+    lb_orbs = 12
+    ub_orbs = 12
+    ub_size = 25
+    n_key, states_i, states_c, states_f = gen_states(
         c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
-        fix_stv_stv=2, lb_size=15, ub_size=20, region_d=5)
-    
-    corners = jnp.array([[25,25], [25, 75], [50,50],[75,25],[75,75]])
+        fix_stv_stv=2, lb_size=15, ub_size=ub_size, region_d=5)
+
     target_state = 3
     epsi = 0.8
-    arrived_prevs = jnp.array([False, False, False, False, False])
-
-    n_key = c_key
-    n_corners = corners
+    arrived_prevs = jnp.zeros((ub_orbs, )) #Effectivly all false
+    simple_x_starts = jnp.arange(ub_size, array_shape[0] - ub_size, 1)
+    simple_y_starts = jnp.arange(ub_size, array_shape[1] - ub_size, 1)
+    corners = jnp.array(list(product(simple_x_starts, simple_y_starts)))
+    n_key, subkey = jax.random.split(n_key)
+    corner_indices = jax.random.randint(key=subkey, shape=(ub_orbs,), 
+                                            minval=0, maxval=corners.shape[0])
+    n_corners = corners[corner_indices]
+    print(n_corners)
     dests, diams = get_diameters_and_dests(states_c, target_state)
 
-    for j in n_iter:
-
-        n_key, n_corners, arrived_prevs = all_orbs_one_st(
-            n_key, n_corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
-            sq=True)
+    for j in range(n_iter):
+        print("Step: ", j)
+        if lazy:
+            n_key, n_corners, arrived_prevs = all_orbs_one_st_lazy(
+                n_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+                sq=True)
+        else:
+            n_key, n_corners, arrived_prevs = all_orbs_one_st(
+                n_key, corners, states_c, target_state, array_shape, epsi, arrived_prevs, 
+                sq=True)
+            
+        print(n_corners)
         
         canvas = jnp.ones(array_shape)
-        for i in range(len(diams)):
-            orb_diam = diams[i]
-            corner = corners[i]
-            trans_to = n_corners[i]
-            og_orb_coords = get_orb_pts(array_shape, corner, orb_diam)
+        for orb in range(len(diams)):
+            orb_diam = diams[orb]
+            trans_to = n_corners[orb]
             orb_coords = get_orb_pts(array_shape, trans_to, orb_diam)
-            cor_og_xs, cor_og_ys = zip(*og_orb_coords)
             xs_orb, ys_orb = zip(*orb_coords)
 
             canvas = canvas.at[xs_orb, ys_orb].set(0) #Draw current orb
 
+        arr_fname = arr_save_folder%j
+        jnp.save(arr_fname, canvas)
+
         plt.imshow(canvas, cmap='hot', interpolation='nearest')
         plt.axis([0, array_shape[0], 0, array_shape[1]])
-        fname = save_folder%i
-        plt.savefig(fname)
+        plt_fname = img_save_folder%j
+        plt.savefig(plt_fname)
+        plt.clf()
+
+
+##########################
+# Full Simulation States #
+##########################
+
+
+def full_states_gen(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
+                    lb_orbs=12, ub_orbs=12, fix_avg=20, fix_stv=4, 
+                    fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
+                    save_loc = my_vars.generatedDataPath):
+    """
+    Generates all the state information for the given number of states. 
+    Does not transition between them, just saves the relevant information, 
+    enabling me to say "I want to only use 5 states, lets simulate those".
+    """
+
+    n_key, states_i, states_c, states_f = gen_states(
+        c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg, fix_stv, 
+        fix_stv_stv, lb_size, ub_size, region_d)
+    
+    my_vars.generatedDataPath
+    
+    
 
 
 if __name__ == "__main__":
@@ -852,5 +986,9 @@ if __name__ == "__main__":
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP)
     #noise_visual()
     #prob_distro_vis(epsi=.8)
-    vis_one_step(c_key=MY_KEY)
-    #vis_state_trans(c_key=MY_KEY, save_folder=my_vars.orbsToStateP)
+    #vis_one_step(c_key=MY_KEY)
+    vis_state_trans(c_key=MY_KEY, img_save_folder=my_vars.orbsToStateP, 
+                       arr_save_folder=my_vars.rawArraysP)
+    
+
+    #n_key, adj_mat = gen_graph(c_key=MY_KEY, n_states=30, p=0.3, self_loops=True)
