@@ -1,5 +1,6 @@
 import jax 
 import time
+import pickle
 import jax.numpy as jnp
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -698,6 +699,7 @@ def all_orbs_one_st_lazy(c_key, corners, states_c, target_state,
     arrived_tos = []
     n_key, subkey = jax.random.split(c_key)
     dests, diams = get_diameters_and_dests(states_c, target_state)
+    print(dests)
     for i in range(len(dests)):
         destination = dests[i]
         orb_diam = diams[i]
@@ -834,21 +836,27 @@ def orb_moving_visual(c_key, save_folder, n_steps=100):
         plt.savefig(fname)
 
 
-def visualize_states(c_key, states_folder):
-    n_states = 5
+def visualize_states(c_key, states_folder=my_vars.stateImgsP, save=True, preload=True, n_states=3):
     array_shape = (100,100)
+    array_shape = (50,50)
     lb_orbs = 8
     ub_orbs = 8
-    n_key, states_i, states_c, states_f = gen_states(
-        c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
-        fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5)
+    if preload:
+        states_i, states_c, states_f = full_states_load(n_states=n_states)
+    else:
+        n_key, states_i, states_c, states_f = gen_states(
+            c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
+            fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5)
     
     for state, expected_img in states_i.items():
         plt.imshow(expected_img, cmap='hot', interpolation='nearest')
         plt.axis([0, array_shape[0], 0, array_shape[1]])
         plt.colorbar()
         fname = states_folder%state
-        plt.savefig(fname)
+        if save:
+            plt.savefig(fname)
+        if not save:
+            plt.show()
         plt.clf()
 
 
@@ -913,7 +921,7 @@ def vis_state_trans(c_key, img_save_folder, arr_save_folder, lazy=True):
 
     target_state = 3
     epsi = 0.8
-    arrived_prevs = jnp.zeros((ub_orbs, )) #Effectivly all false
+    arrived_prevs = jnp.zeros((ub_orbs, )) #Effectivly all false?
     simple_x_starts = jnp.arange(ub_size, array_shape[0] - ub_size, 1)
     simple_y_starts = jnp.arange(ub_size, array_shape[1] - ub_size, 1)
     corners = jnp.array(list(product(simple_x_starts, simple_y_starts)))
@@ -936,6 +944,8 @@ def vis_state_trans(c_key, img_save_folder, arr_save_folder, lazy=True):
                 sq=True)
             
         print(n_corners)
+        print(arrived_prevs)
+        print()
         
         canvas = jnp.ones(array_shape)
         for orb in range(len(diams)):
@@ -956,39 +966,188 @@ def vis_state_trans(c_key, img_save_folder, arr_save_folder, lazy=True):
         plt.clf()
 
 
-##########################
-# Full Simulation States #
-##########################
+###################
+# Full Simulation #
+###################
 
 
-def full_states_gen(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
+def dup_dict(orig_d, key_modifier):
+    """
+    Takes a dictionary and returns a new dictionary where every key 
+    is the key from the old dictionary + key_modifier
+    """
+    new_d = dict()
+    for k, v in orig_d.items():
+        new_d[k + key_modifier] = v
+    return new_d
+
+
+def full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
                     lb_orbs=12, ub_orbs=12, fix_avg=20, fix_stv=4, 
                     fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
-                    save_loc = my_vars.generatedDataPath):
+                    save_loc = my_vars.generatedDataPath, in_parts=True,
+                    part_step=3, load_prev=False, start_load=1):
     """
     Generates all the state information for the given number of states. 
     Does not transition between them, just saves the relevant information, 
     enabling me to say "I want to only use 5 states, lets simulate those".
+
+    Inputs:
+    --------
+        in_parts (bool) : Whether to generate my total dict in parts, eg 
+                        say 3 states at a time or all at once.
+        part_step (int) : Size of steps to generate if in_parts is true
+        load_prev (bool) : If True, then loads previous saved work and continues
+                           based off of it.
+        start_load (int) : If load_prev is true, then generates states from this number
+                           onwards.
+    """    
+    
+    if load_prev:
+        states_i, states_c, states_f, n_key = full_states_load(n_states, save_loc)
+    else:
+        states_i = dict()
+        states_c = dict() 
+        states_f = dict()
+        n_key = c_key
+    
+    states_i_path = str(save_loc.joinpath("%d_states_i.pickle"%n_states))
+    states_c_path = str(save_loc.joinpath("%d_states_c.pickle"%n_states))
+    states_f_path = str(save_loc.joinpath("%d_states_f.pickle"%n_states))
+    n_key_path = str(save_loc.joinpath("%d_states_n_key.pickle"%n_states))
+
+    for i in range(1, n_states+1):
+        eval_criterion = (i%part_step==0 and load_prev and i >= start_load) \
+                          or (i%part_step==0 and not load_prev)
+        if eval_criterion:
+
+            print(i)
+
+            # Gen part_step states at a time. Then we'll combine them w/ previous results.
+            n_key, states_i_step, states_c_step, states_f_step = gen_states(
+                n_key, part_step, array_shape, lb_orbs, ub_orbs, fix_avg, fix_stv, 
+                fix_stv_stv, lb_size, ub_size, region_d)
+
+            states_i_step = dup_dict(states_i_step, key_modifier=i-part_step)
+            states_c_step = dup_dict(states_c_step, key_modifier=i-part_step)
+            states_f_step = dup_dict(states_f_step, key_modifier=i-part_step)
+
+            states_i = {**states_i, **states_i_step}
+            states_c = {**states_c, **states_c_step}
+            states_f = {**states_f, **states_f_step}
+            
+            print(states_i)
+            print()
+            print(states_c)
+            print()
+            print(states_f)
+
+            with open(states_i_path, 'wb') as handle:
+                pickle.dump(states_i, handle)
+
+            with open(states_c_path, 'wb') as handle:
+                pickle.dump(states_c, handle)
+
+            with open(states_f_path, 'wb') as handle:
+                pickle.dump(states_f, handle)
+
+            with open(n_key_path, 'wb') as handle:
+                pickle.dump(n_key, handle)
+
+            num_done = i
+
+        # Capture the last little few if my steps didn't perfectly 
+        # include all states
+        elif i == n_states + 1:
+            print("Final: ", i)
+            num_needed = n_states +1  - num_done
+
+            n_key, states_i_step, states_c_step, states_f_step = gen_states(
+                n_key, num_needed, array_shape, lb_orbs, ub_orbs, fix_avg, fix_stv, 
+                fix_stv_stv, lb_size, ub_size, region_d)
+            
+            states_i_step = dup_dict(states_i_step, key_modifier=num_done) #num_done + 1??
+            states_c_step = dup_dict(states_c_step, key_modifier=num_done)
+            states_f_step = dup_dict(states_f_step, key_modifier=num_done)
+
+            states_i = {**states_i, **states_i_step}
+            states_c = {**states_c, **states_c_step}
+            states_f = {**states_f, **states_f_step}
+
+            with open(states_i_path, 'wb') as handle:
+                pickle.dump(states_i, handle)
+
+            with open(states_c_path, 'wb') as handle:
+                pickle.dump(states_c, handle)
+
+            with open(states_f_path, 'wb') as handle:
+                pickle.dump(states_f, handle)
+
+            with open(n_key_path, 'wb') as handle:
+                pickle.dump(n_key, handle)
+            
+
+    
+
+def full_states_load(n_states, save_loc = my_vars.generatedDataPath):
+    """
+    Loads the saved dictionaries from full_states_save
     """
 
-    n_key, states_i, states_c, states_f = gen_states(
-        c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg, fix_stv, 
-        fix_stv_stv, lb_size, ub_size, region_d)
-    
-    my_vars.generatedDataPath
-    
-    
+    states_i_path = str(save_loc.joinpath("%d_states_i.pickle"%n_states))
+    states_c_path = str(save_loc.joinpath("%d_states_c.pickle"%n_states))
+    states_f_path = str(save_loc.joinpath("%d_states_f.pickle"%n_states))
+    n_key_path = str(save_loc.joinpath("%d_states_n_key.pickle"%n_states))
+
+    with open(states_i_path, 'rb') as f:
+        states_i = pickle.load(f)
+
+    with open(states_c_path, 'rb') as f:
+        states_c = pickle.load(f)
+
+    with open(states_f_path, 'rb') as f:
+        states_f = pickle.load(f)
+
+    with open(n_key_path, 'rb') as f:
+        n_key = pickle.load(f)
+
+    return states_i, states_c, states_f, n_key
 
 
 if __name__ == "__main__":
     array_shape = (100,100)
     #orb_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestP, n_steps=100)
-    #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP)
+    #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=False)
     #noise_visual()
     #prob_distro_vis(epsi=.8)
     #vis_one_step(c_key=MY_KEY)
-    vis_state_trans(c_key=MY_KEY, img_save_folder=my_vars.orbsToStateP, 
-                       arr_save_folder=my_vars.rawArraysP)
+    #vis_state_trans(c_key=MY_KEY, img_save_folder=my_vars.orbsToStateP, 
+    #                   arr_save_folder=my_vars.rawArraysP)
     
 
     #n_key, adj_mat = gen_graph(c_key=MY_KEY, n_states=30, p=0.3, self_loops=True)
+
+    """
+    full_states_save(c_key = MY_KEY, n_states = 6, array_shape = (50,50), 
+                    lb_orbs=4, ub_orbs=4, fix_avg=20, fix_stv=4, 
+                    fix_stv_stv=2, lb_size=3, ub_size=6, region_d=5,
+                    save_loc = my_vars.generatedDataPath, in_parts=True,
+                    part_step=3, load_prev=False, start_load=1)
+    
+    states_i, states_c, states_f, n_key = full_states_load(n_states=3)
+    print(states_i)
+    print()
+    print(states_c)
+    print()
+    print(states_f)
+    """
+    #states_i, states_c, states_f, n_key = full_states_load(n_states=6)
+    #"""
+    full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
+                    lb_orbs=12, ub_orbs=12, fix_avg=20, fix_stv=4, 
+                    fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
+                    save_loc = my_vars.generatedDataPath, in_parts=True,
+                    part_step=3, load_prev=False, start_load=1)
+    #"""
+    #print(states_f)
+    

@@ -4,3 +4,4 @@ __pycache__/genSyntheticData.cpython-311.pyc
 __pycache__/openRawData.cpython-311.pyc
 unconstrained_time_taken_lambdas_opti.png
 __pycache__/openRawData.cpython-311.pyc
+*.pickle
