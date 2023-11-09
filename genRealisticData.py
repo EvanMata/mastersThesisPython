@@ -13,7 +13,8 @@ from sinkhorn_knopp import sinkhorn_knopp as skp
 import pathlib_variable_names as my_vars
 
 MY_KEY = jax.random.PRNGKey(0)
-DIAM = 5 #Diameter, in pixels, of region an orb can take 1 step in. =1 means unmoving
+DIAM = 9 #Diameter, in pixels, of region an orb can take 1 step in. =1 means unmoving
+#(DIAM - 1 ) / 2 is effectively orb speed
 
 jnp.set_printoptions(precision=3)
 
@@ -505,14 +506,14 @@ def prob_distro(destination, array_shape, corner, orb_diam, epsi, sq=True):
 
     Inputs:
     -------
-        epsi (float in [.5,1]) : Probability of moving towards the destination 
-                                 (in aggregate)
+        destination (jnp array) : states_c[state][orb] value, an array of tuples of 
+                    corner locations that the orb is heading towards
+        array_shape (tup) : shape of the canvas
         corner (jnp.array) : (x,y) pair indicating where the lowest x, lowest y valued 
                         corner a box around the orb would be
         orb_diam (int) : Diameter of the orb who's region it will be.
-        array_shape (tup) : shape of the canvas 
-        destination (jnp array) : states_c[state][orb] value, an array of tuples of 
-                    corner locations that the orb is heading towards
+        epsi (float in [.5,1]) : Probability of moving towards the destination 
+                                 (in aggregate) 
         sq (bool) : If true, makes regions that are squares, 
                     If false NOT IMPLEMENTED, make plus or circle shapes regions
     
@@ -531,11 +532,7 @@ def prob_distro(destination, array_shape, corner, orb_diam, epsi, sq=True):
     
     
     valid_transitions = get_region(array_shape, corner - 2, diam, orb_diam, sq) #For corners, global
-    trans_probs = jnp.zeros(valid_transitions.shape[0],)
-    
-    print(corner - 2, diam, orb_diam)
-    print("Valid Transitions: ", valid_transitions)
-    
+    trans_probs = jnp.zeros(valid_transitions.shape[0],)    
     dists = cdist( valid_transitions, destination, metric='euclidean' )
     min_l2s = jnp.min(dists, axis=1)
     base_dist = jnp.min(cdist( [corner], destination, metric='euclidean' ))
@@ -571,7 +568,7 @@ def orb_step_toward_st(c_key, destination, array_shape, corner, orb_diam, epsi, 
     return n_key, trans_to
 
 
-def orb_step_arived_st(c_key, destination, array_shape, corner, orb_diam, sq=True):
+def orb_step_arived_st(c_key, destination, array_shape, corner, orb_diam, sq=True, jitv=False):
     """
     Picks where the orb moves if it has already arrived at its destination
     Should update this if destinations get large, so that jumps aren't more than one step.
@@ -589,8 +586,12 @@ def orb_step_arived_st(c_key, destination, array_shape, corner, orb_diam, sq=Tru
     """
     diam = DIAM
     valid_transitions = get_region(array_shape, corner, diam, orb_diam, sq)
-    valid_trans = set([(loc[0].astype(int),loc[1].astype(int)) for loc in valid_transitions])
-    dests = set([(loc[0].astype(int),loc[1].astype(int)) for loc in destination])
+    if jitv:
+        valid_trans = set([(loc[0].astype(int),loc[1].astype(int)) for loc in valid_transitions])
+        dests = set([(loc[0].astype(int),loc[1].astype(int)) for loc in destination])
+    else:
+        valid_trans = set([(int(loc[0]),int(loc[1])) for loc in valid_transitions])
+        dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
     valid_dests = list(dests.intersection(valid_trans)) #Anything within travel dist and in dest
     n_key, subkey = jax.random.split(c_key)
     trans_to_index = jax.random.randint(subkey, shape=(1,), minval=0, maxval=len(valid_dests))
@@ -1055,7 +1056,6 @@ def simulate_corners(c_key, states_c, st):
         corners.append(corner)
     
     corners = jnp.array(corners)
-    print([(corners[i], diams[i]) for i in range(len(diams))])
     return n_key, corners
 
 
@@ -1211,16 +1211,33 @@ def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, co
     Transitions between 2 states, potentially saving the info generated along the way.
 
     Args:
-        c_key (_type_): _description_
-        states_c (_type_) : Dict of State Number: Dict of Orb Numbers: tup of:
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: tup of:
                           - valid region/destination locations for The given orb 
                           (eg where it can move to when in the state) 
                           - orb diam
-        st_st (_type_): _description_
-        st_end (_type_): _description_
-        img_save_folder (_type_): _description_
-        arr_save_folder (_type_): _description_
-        lazy (bool): _description_. Defaults to True.
+        st_st (int): State to start at
+        st_end (int): State to end at
+        save_arrs (bool): Whether or not to generate and save the arrays of 
+                          frames passed through
+        save_figs (bool): Whether or not to generate and save the images of 
+                          frames passed through
+        corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                            lowest x, lowest y valued corner a box around the 
+                            orb at index i would be
+        img_save_folder (path): Path to save visuals of arrays
+        arr_save_folder (path): Path to save arrays
+        array_shape (tup) : (x size of imgs/arrays, y size of imgs/arrays)
+        epsi (float in [.5,1]) : Probability of moving towards the destination 
+                                 (in aggregate) 
+        lazy (bool): Whether to use the non-jax version of things.
+        
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        n_corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                              lowest x, lowest y valued corner a box around the 
+                              orb at index i ended up at the finish of the simulation
     """
     
     init_info = states_c[st_st]
@@ -1235,8 +1252,6 @@ def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, co
     n_corners = corners
     arrived_prevs = init_arrived_prevs
     in_dest = all(arrived_prevs)
-    
-    print([(corners[i], diams[i]) for i in range(len(diams))])
     
     while not in_dest:
         j += 1
@@ -1287,12 +1302,12 @@ if __name__ == "__main__":
     #                   arr_save_folder=my_vars.rawArraysP)
     
 
-    n_key, adj_mat, G = gen_graph(c_key=MY_KEY, n_states=20, p=0.1, self_loops=True)
-    vis_graph(G)
+    #n_key, adj_mat, G = gen_graph(c_key=MY_KEY, n_states=20, p=0.1, self_loops=True)
+    #vis_graph(G)
     #vis_graph2(adj_mat)
 
-    #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
-    #                 preload=True, n_states=30, array_shape = (120,120))
+    visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
+                     preload=True, n_states=30, array_shape = (120,120))
     """
     states_i, states_c, states_f, n_key = full_states_load(n_states=30)
     for state, orb_d in states_c.items():
@@ -1310,5 +1325,5 @@ if __name__ == "__main__":
                     part_step=2, load_prev=False, start_load=0)
     """
     #print(states_f)
-    #vis_state_trans2(n_states=30, st_st=1, st_end=2)
+    vis_state_trans2(n_states=30, st_st=1, st_end=2)
     
