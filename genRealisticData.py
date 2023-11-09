@@ -1,6 +1,7 @@
 import jax 
 import time
 import pickle
+import numpy as np
 import jax.numpy as jnp
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -447,7 +448,7 @@ def gen_perm(n_states, c_key):
     """
     n_key, subkey = jax.random.split(c_key)
     id = jnp.identity(n_states)
-    perm = jax.random.shuffle(subkey, id)
+    perm = jax.random.permutation(subkey, id)
     return perm, n_key
 
 
@@ -459,6 +460,37 @@ def permute_matrix(matrix, c_key):
     perm, n_key = gen_perm(n_states, c_key)
     permuted_m = jnp.matmul(perm.T, jnp.matmul(matrix, perm))
     return permuted_m, n_key
+
+
+def vis_graph(G):
+    edge_labels = dict([((u,v,), f"{d['weight']:.2f}") for u,v,d in G.edges(data=True)])
+    pos = nx.spring_layout(G, seed=10)
+    #pos = G.layout('dot')
+    nx.draw_networkx(G, pos)
+    nx.draw_networkx_edge_labels(G, pos, edge_labels, label_pos=0.5)
+    #D = nx.drawing.nx_agraph.to_agraph(G)
+    #D.layout('dot')
+    #D.draw('Graph.eps')
+    
+    ax = plt.gca()
+    ax.margins(0.08)
+    plt.axis("off")
+    plt.tight_layout()
+    plt.show()
+
+
+def vis_graph2(adj_mat):
+    from netgraph import Graph
+    sources, targets = np.where(adj_mat)
+    weights = adj_mat[sources, targets]
+    #weights = [f"{d['weight']:.2f}" for w in weights]
+    weights = [f"{w:.2f}" for w in weights]
+    edges = list(zip(sources, targets))
+    edge_labels = dict(zip(edges, weights))
+
+    fig, ax = plt.subplots()
+    Graph(edges, edge_labels=edge_labels, edge_label_position=0.66, arrows=True, ax=ax)
+    plt.show()
 
 
 ##############
@@ -1255,8 +1287,9 @@ if __name__ == "__main__":
     #                   arr_save_folder=my_vars.rawArraysP)
     
 
-    n_key, adj_mat, G = gen_graph(c_key=MY_KEY, n_states=30, p=0.3, self_loops=True)
-    nx.draw(G)
+    n_key, adj_mat, G = gen_graph(c_key=MY_KEY, n_states=20, p=0.1, self_loops=True)
+    vis_graph(G)
+    #vis_graph2(adj_mat)
 
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
     #                 preload=True, n_states=30, array_shape = (120,120))
