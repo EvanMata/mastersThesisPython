@@ -386,6 +386,8 @@ def gen_graph(c_key, n_states, p, self_loops=True):
         n_key (jnp array) : new key for generating new random numbers
         adj_mat (jnp array) : doubly stochastic matrix thats ~mostly symetric 
                                 (up to ~3 orders of magnitude)
+        G (networkx Graph) : A networkx graph object from the corresponding 
+                             adjacency matrix.
     
     """
     adj_mat = jnp.zeros((n_states, n_states))
@@ -414,9 +416,8 @@ def gen_graph(c_key, n_states, p, self_loops=True):
     sk = skp.SinkhornKnopp()
     adj_mat = sk.fit(adj_mat)
     adj_mat = jnp.array(adj_mat)
-    #diags = adj_mat[diag_inds, diag_inds]
-    #print(diags)
-    return n_key, adj_mat
+    G = nx.from_numpy_array(adj_mat)
+    return n_key, adj_mat, G
 
 
 def random_fully_connected(n_states, c_key):
@@ -1254,10 +1255,12 @@ if __name__ == "__main__":
     #                   arr_save_folder=my_vars.rawArraysP)
     
 
-    #n_key, adj_mat = gen_graph(c_key=MY_KEY, n_states=30, p=0.3, self_loops=True)
+    n_key, adj_mat, G = gen_graph(c_key=MY_KEY, n_states=30, p=0.3, self_loops=True)
+    nx.draw(G)
 
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
     #                 preload=True, n_states=30, array_shape = (120,120))
+    """
     states_i, states_c, states_f, n_key = full_states_load(n_states=30)
     for state, orb_d in states_c.items():
         destinations = states_c[state]
@@ -1266,11 +1269,12 @@ if __name__ == "__main__":
         print(orb_diams)
     #print(states_f)
     """
+    """
     full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
-                    lb_orbs=12, ub_orbs=12, fix_avg=20, fix_stv=4, 
+                    lb_orbs=16, ub_orbs=16, fix_avg=20, fix_stv=4, 
                     fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
                     save_loc = my_vars.generatedDataPath, in_parts=True,
-                    part_step=2, load_prev=True, start_load=10)
+                    part_step=2, load_prev=False, start_load=0)
     """
     #print(states_f)
     #vis_state_trans2(n_states=30, st_st=1, st_end=2)
