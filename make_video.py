@@ -29,5 +29,14 @@ def make_state_to_dest():
     make_video(image_folder, video_save_folder, video_name)
 
 
+def make_state_to_state():
+    
+    image_folder = my_vars.orbsToStateP 
+    image_folder = my_vars.orbsToStateF
+    video_name = "State_1_Trans_to_State_2"
+    video_save_folder = my_vars.vidsFolder
+    make_video(image_folder, video_save_folder, video_name)
+
 if __name__ == "__main__":
-    make_state_to_dest()
+    #make_state_to_dest()
+    make_state_to_state()
