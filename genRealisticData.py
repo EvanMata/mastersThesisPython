@@ -588,7 +588,7 @@ def one_orb_one_st(c_key, corner, destination, array_shape, orb_diam, epsi, arri
     if jitv:
         dests = set([(loc[0].astype(int),loc[1].astype(int)) for loc in destination])
     else:
-        dests = set([(int(loc[0]),int(loc[1])) for loc in destination])
+        dests = to_tups(destination)
     if arrived_prev:
         n_key, trans_to = orb_step_arived_st(c_key, destination, array_shape, 
                                              corner, orb_diam, sq)
@@ -699,7 +699,6 @@ def all_orbs_one_st_lazy(c_key, corners, states_c, target_state,
     arrived_tos = []
     n_key, subkey = jax.random.split(c_key)
     dests, diams = get_diameters_and_dests(states_c, target_state)
-    print(dests)
     for i in range(len(dests)):
         destination = dests[i]
         orb_diam = diams[i]
@@ -726,6 +725,10 @@ def get_diameters_and_dests(states_c, target_state, jitv=False):
         dests = [dest[1][0] for dest in orb_info_l]
         diams = [dest[1][1] for dest in orb_info_l]
     return dests, diams
+
+
+def to_tups(destination):
+    return set([(int(loc[0]),int(loc[1])) for loc in destination])
 
 
 #############################
@@ -836,13 +839,12 @@ def orb_moving_visual(c_key, save_folder, n_steps=100):
         plt.savefig(fname)
 
 
-def visualize_states(c_key, states_folder=my_vars.stateImgsP, save=True, preload=True, n_states=3):
-    array_shape = (100,100)
-    array_shape = (50,50)
+def visualize_states(c_key, states_folder=my_vars.stateImgsP, save=True, preload=True, 
+                     n_states=3, array_shape = (120,120)):
     lb_orbs = 8
     ub_orbs = 8
     if preload:
-        states_i, states_c, states_f = full_states_load(n_states=n_states)
+        states_i, states_c, states_f, n_key = full_states_load(n_states=n_states)
     else:
         n_key, states_i, states_c, states_f = gen_states(
             c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_stv=4, 
@@ -966,6 +968,55 @@ def vis_state_trans(c_key, img_save_folder, arr_save_folder, lazy=True):
         plt.clf()
 
 
+def vis_state_trans2(n_states, st_st, st_end):
+    c_key=MY_KEY
+    img_save_folder=my_vars.orbsToStateP 
+    arr_save_folder=my_vars.rawArraysP
+    states_i, states_c, states_f, bleh_key = full_states_load(n_states)
+    save_arrs = True
+    save_figs = True
+    
+    n_key, corners = simulate_corners(c_key, states_c, st_st)
+    transition_to_state(n_key, states_c, st_st, st_end, save_arrs, save_figs, corners, 
+                        img_save_folder, arr_save_folder, epsi=0.7, lazy=True)
+    
+
+def simulate_corners(c_key, states_c, st):
+    """
+    Picks random corners from the given state's destination for 
+    each orb.
+    
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: tup of:
+                          - valid region/destination locations for The given orb 
+                          (eg where it can move to when in the state) 
+                          - orb diam
+        st (int) : The current state which corners are being generated for
+                          
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                            lowest x, lowest y valued corner a box around the 
+                            orb at index i would be
+    """
+    corners = []
+    n_key = c_key
+    dests, diams = get_diameters_and_dests(states_c, st)
+    
+    for dest in dests:
+        num_dests = len(dest)
+        n_key, subkey = jax.random.split(n_key)
+        my_index = int(jax.random.randint(subkey, shape=(1,), minval=0, maxval=num_dests))
+        corner = dest[my_index]
+        corners.append(corner)
+    
+    corners = jnp.array(corners)
+    return n_key, corners
+
+
 ###################
 # Full Simulation #
 ###################
@@ -1087,8 +1138,6 @@ def full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120),
                 pickle.dump(n_key, handle)
             
 
-    
-
 def full_states_load(n_states, save_loc = my_vars.generatedDataPath):
     """
     Loads the saved dictionaries from full_states_save
@@ -1114,6 +1163,75 @@ def full_states_load(n_states, save_loc = my_vars.generatedDataPath):
     return states_i, states_c, states_f, n_key
 
 
+def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, corners, 
+                        img_save_folder, arr_save_folder, epsi=0.7, lazy=True):
+    """
+    Transitions between 2 states, potentially saving the info generated along the way.
+
+    Args:
+        c_key (_type_): _description_
+        states_c (_type_) : Dict of State Number: Dict of Orb Numbers: tup of:
+                          - valid region/destination locations for The given orb 
+                          (eg where it can move to when in the state) 
+                          - orb diam
+        st_st (_type_): _description_
+        st_end (_type_): _description_
+        img_save_folder (_type_): _description_
+        arr_save_folder (_type_): _description_
+        lazy (bool): _description_. Defaults to True.
+    """
+    
+    init_info = states_c[st_st]
+    dests, diams = get_diameters_and_dests(states_c, st_end)
+    dests_tups = [to_tups(dest) for dest in dests]
+    corner_tups = [(int(corner[0]), int(corner[1])) for corner in corners]
+    
+    init_arrived_prevs = [corner_tups[orb] in dest for orb, dest in enumerate(dests_tups)]     
+    
+    j = 0
+    n_key = c_key
+    n_corners = corners
+    arrived_prevs = init_arrived_prevs
+    in_dest = all(arrived_prevs)
+    
+    while not in_dest:
+        j += 1
+        print("Step: ", j)
+        if lazy:
+            n_key, n_corners, arrived_prevs = all_orbs_one_st_lazy(
+                n_key, n_corners, states_c, st_end, array_shape, epsi, arrived_prevs, 
+                sq=True)
+        else:
+            n_key, n_corners, arrived_prevs = all_orbs_one_st(
+                n_key, n_corners, states_c, st_end, array_shape, epsi, arrived_prevs, 
+                sq=True)
+        
+        if save_arrs | save_figs:
+            canvas = jnp.ones(array_shape)
+            for orb in range(len(diams)):
+                orb_diam = diams[orb]
+                trans_to = n_corners[orb]
+                orb_coords = get_orb_pts(array_shape, trans_to, orb_diam)
+                xs_orb, ys_orb = zip(*orb_coords)
+
+                canvas = canvas.at[xs_orb, ys_orb].set(0) #Draw current orb
+
+            if save_arrs:
+                arr_fname = arr_save_folder%j
+                jnp.save(arr_fname, canvas)
+
+            if save_figs:
+                plt.imshow(canvas, cmap='hot', interpolation='nearest')
+                plt.axis([0, array_shape[0], 0, array_shape[1]])
+                plt_fname = img_save_folder%j
+                plt.savefig(plt_fname)
+                plt.clf()
+        
+        in_dest = all(arrived_prevs)
+
+    return n_key, n_corners
+
+
 if __name__ == "__main__":
     array_shape = (100,100)
     #orb_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestP, n_steps=100)
@@ -1127,27 +1245,17 @@ if __name__ == "__main__":
 
     #n_key, adj_mat = gen_graph(c_key=MY_KEY, n_states=30, p=0.3, self_loops=True)
 
+    #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
+    #                 preload=True, n_states=30, array_shape = (120,120))
+    #states_i, states_c, states_f, n_key = full_states_load(n_states=30)
+    #print(states_f)
     """
-    full_states_save(c_key = MY_KEY, n_states = 6, array_shape = (50,50), 
-                    lb_orbs=4, ub_orbs=4, fix_avg=20, fix_stv=4, 
-                    fix_stv_stv=2, lb_size=3, ub_size=6, region_d=5,
-                    save_loc = my_vars.generatedDataPath, in_parts=True,
-                    part_step=3, load_prev=False, start_load=1)
-    
-    states_i, states_c, states_f, n_key = full_states_load(n_states=3)
-    print(states_i)
-    print()
-    print(states_c)
-    print()
-    print(states_f)
-    """
-    #states_i, states_c, states_f, n_key = full_states_load(n_states=6)
-    #"""
     full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
                     lb_orbs=12, ub_orbs=12, fix_avg=20, fix_stv=4, 
                     fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
                     save_loc = my_vars.generatedDataPath, in_parts=True,
-                    part_step=2, load_prev=False, start_load=1)
-    #"""
+                    part_step=2, load_prev=True, start_load=10)
+    """
     #print(states_f)
+    vis_state_trans2(n_states=30, st_st=1, st_end=2)
     
