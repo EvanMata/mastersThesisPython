@@ -240,21 +240,22 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
     state_duration_variances = fix_stv_stv*(jax.random.normal(subkey, shape=(n_states,))) + fix_stv
     state_duration_variances = jnp.clip(state_duration_variances, a_min=0.1)
     
+    n_orbs = ub_orbs #ADJUST THIS LATER
+    n_key, subkey = jax.random.split(n_key)
+    orb_diams = jax.random.randint(key=subkey, shape=(n_orbs,), 
+                                    minval=lb_size, maxval=ub_size)
+    
     for state in range(n_states):
-        n_orbs = ub_orbs #ADJUST THIS LATER
         orb_num_to_corner = dict()
         visual = jnp.zeros(array_shape)
-        n_key, subkey = jax.random.split(n_key)
-        orb_diams = jax.random.randint(key=subkey, shape=(n_orbs,), 
-                                       minval=lb_size, maxval=ub_size)
 
         for orb in range(len(orb_diams)):
             orb_diam = orb_diams[orb]
             orb_valid_corners = valid_corners.copy()
             orb_valid_corners = orb_valid_corners - int(orb_diam/2)
+            n_key, subkey = jax.random.split(n_key)
             corner_index = jax.random.randint(key=subkey, shape=(1,), 
                                             minval=0, maxval=orb_valid_corners.shape[0])
-            n_key, subkey = jax.random.split(n_key)
             corner = orb_valid_corners[corner_index][0]
             region = get_region(array_shape, corner, region_d, orb_diam)
             orb_num_to_corner[orb] = (region, orb_diam) #Make region tuple?
@@ -495,8 +496,13 @@ def prob_distro(destination, array_shape, corner, orb_diam, epsi, sq=True):
 
     diam = DIAM #Diameter of region where orb can travel to.
     
+    
     valid_transitions = get_region(array_shape, corner - 2, diam, orb_diam, sq) #For corners, global
     trans_probs = jnp.zeros(valid_transitions.shape[0],)
+    
+    print(corner - 2, diam, orb_diam)
+    print("Valid Transitions: ", valid_transitions)
+    
     dists = cdist( valid_transitions, destination, metric='euclidean' )
     min_l2s = jnp.min(dists, axis=1)
     base_dist = jnp.min(cdist( [corner], destination, metric='euclidean' ))
@@ -703,6 +709,7 @@ def all_orbs_one_st_lazy(c_key, corners, states_c, target_state,
         destination = dests[i]
         orb_diam = diams[i]
         corner = corners[i]
+        print(corner, orb_diam)
         arrived_prev = arrived_prevs[i]
         subkey, trans_to, arrived_to = one_orb_one_st(subkey, corner, destination, 
                                         array_shape, orb_diam, epsi, arrived_prev, sq=True)
@@ -975,10 +982,11 @@ def vis_state_trans2(n_states, st_st, st_end):
     states_i, states_c, states_f, bleh_key = full_states_load(n_states)
     save_arrs = True
     save_figs = True
+    array_shape = (120, 120)
     
     n_key, corners = simulate_corners(c_key, states_c, st_st)
     transition_to_state(n_key, states_c, st_st, st_end, save_arrs, save_figs, corners, 
-                        img_save_folder, arr_save_folder, epsi=0.7, lazy=True)
+                        img_save_folder, arr_save_folder, array_shape, epsi=0.7, lazy=True)
     
 
 def simulate_corners(c_key, states_c, st):
@@ -1014,6 +1022,7 @@ def simulate_corners(c_key, states_c, st):
         corners.append(corner)
     
     corners = jnp.array(corners)
+    print([(corners[i], diams[i]) for i in range(len(diams))])
     return n_key, corners
 
 
@@ -1164,7 +1173,7 @@ def full_states_load(n_states, save_loc = my_vars.generatedDataPath):
 
 
 def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, corners, 
-                        img_save_folder, arr_save_folder, epsi=0.7, lazy=True):
+                        img_save_folder, arr_save_folder, array_shape, epsi=0.7, lazy=True):
     """
     Transitions between 2 states, potentially saving the info generated along the way.
 
@@ -1193,6 +1202,8 @@ def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, co
     n_corners = corners
     arrived_prevs = init_arrived_prevs
     in_dest = all(arrived_prevs)
+    
+    print([(corners[i], diams[i]) for i in range(len(diams))])
     
     while not in_dest:
         j += 1
@@ -1247,7 +1258,12 @@ if __name__ == "__main__":
 
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
     #                 preload=True, n_states=30, array_shape = (120,120))
-    #states_i, states_c, states_f, n_key = full_states_load(n_states=30)
+    states_i, states_c, states_f, n_key = full_states_load(n_states=30)
+    for state, orb_d in states_c.items():
+        destinations = states_c[state]
+        orb_info_l = sorted([(orb, dest) for orb, dest in destinations.items()])
+        orb_diams = [(orb, dest[1][1]) for orb, dest in enumerate(orb_info_l)]
+        print(orb_diams)
     #print(states_f)
     """
     full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
@@ -1257,5 +1273,5 @@ if __name__ == "__main__":
                     part_step=2, load_prev=True, start_load=10)
     """
     #print(states_f)
-    vis_state_trans2(n_states=30, st_st=1, st_end=2)
+    #vis_state_trans2(n_states=30, st_st=1, st_end=2)
     
