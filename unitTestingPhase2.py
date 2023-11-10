@@ -421,6 +421,15 @@ def t_orb(center_on_edge=False):
     plt.show()
 
 
+def t_pdist_ok():
+    c_key = jax.random.PRNGKey(0)
+    n_key, adj_mat, G = genR.gen_graph(c_key, n_states=20, p=.1, self_loops=False)
+    states = range(len(adj_mat))
+    for state in states:
+        nxt = genR.get_next_state(c_key, adj_mat, state)
+        print(nxt)
+
+
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
@@ -439,4 +448,5 @@ if __name__ == "__main__":
     #t_vmapped_2()
     #t_vmapped_3()
     #comp_vmap_4()
-    t_vmap_region()
+    #t_vmap_region()
+    t_pdist_ok()

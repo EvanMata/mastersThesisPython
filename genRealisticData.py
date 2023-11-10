@@ -782,7 +782,6 @@ def all_orbs_one_st_lazy(c_key, corners, states_c, target_state,
         destination = dests[i]
         orb_diam = diams[i]
         corner = corners[i]
-        print(corner, orb_diam)
         arrived_prev = arrived_prevs[i]
         subkey, trans_to, arrived_to = one_orb_one_st(subkey, corner, destination, 
                                         array_shape, orb_diam, epsi, arrived_prev, sq=True)
@@ -1287,7 +1286,8 @@ def get_next_state(c_key, adj_mat, from_st):
         transition_probs = [t for t in transition_probs]
         transition_probs.append(last_st_prob)
         
-    next_st = jax.random.choice(subkey, transition_locs, transition_probs)
+    transition_locs = jnp.array(transition_locs)
+    next_st = jax.random.choice(key=subkey, a=transition_locs, shape=(), p=transition_probs)
     if next_st == n_states:
         n_key, next_st = get_next_state(n_key, adj_mat, from_st)
         
@@ -1434,14 +1434,14 @@ def stay_in_state(c_key, states_c, st_st, duration, save_arrs, save_figs, corner
     data_frame_all = []
     dests, diams = get_diameters_and_dests(states_c, st_st)
     
-    init_arrived_prevs = [True for i in range(corners)]     
+    init_arrived_prevs = [True for i in range(len(corners))]     
     
     n_key = c_key
     n_corners = corners
     arrived_prevs = init_arrived_prevs
     in_dest = all(arrived_prevs)
     
-    for i in range(duration):
+    for i in range(int(duration)):
         j += 1
         print("Step: ", j)
         if lazy:
@@ -1553,17 +1553,18 @@ def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st,
     #Or load all my info.
     else:
         df_cols = ["j", "out key", "start state", "end state", "arrived"]
-        for i in range(corners):
+        for i in range(len(corners)):
             df_cols.append("%d arrived"%i)
-        for i in range(corners):
+        for i in range(len(corners)):
             df_cols.append("%d corner"%i)
         
         init_data = [j, n_key, st_st, st_st, True]
-        for i in range(corners):
+        for i in range(len(corners)):
             init_data.append(True)
         for c in corners:
             init_data.append(c)
-        df = pd.DataFrame(init_data, cols=df_cols)
+        
+        df = pd.DataFrame([init_data], columns=df_cols)
     
     while j < tot_steps:
         cond = (pickup and not last_stayed) | (not pickup)
@@ -1616,7 +1617,7 @@ if __name__ == "__main__":
     array_shape = (100,100)
     #orb_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestP, n_steps=100)
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=False)
-    noise_visual()
+    #noise_visual()
     #prob_distro_vis(epsi=.8)
     #vis_one_step(c_key=MY_KEY)
     #vis_state_trans(c_key=MY_KEY, img_save_folder=my_vars.orbsToStateP, 
@@ -1647,4 +1648,13 @@ if __name__ == "__main__":
     """
     #print(states_f)
     #vis_state_trans2(n_states=30, st_st=1, st_end=2)
+    #"""
+    full_simulation(c_key=MY_KEY, n_states_to_use=20, n_states=30, 
+                    array_shape=(120,120), st_st = 0, 
+                    regen_stvs=True, tot_steps=10000, epsi=0.85, p=0.1,
+                    save_arrs=True, save_figs=True, lazy=True, 
+                    img_save_folder=my_vars.orbsToStateP, 
+                    arr_save_folder=my_vars.rawArraysP, 
+                    pickup=False)
+    #"""
     
