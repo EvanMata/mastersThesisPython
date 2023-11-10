@@ -2,6 +2,7 @@ import jax
 import time
 import pickle
 import numpy as np
+import pandas as pd
 import jax.numpy as jnp
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -218,7 +219,7 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
                           - valid region/destination locations for The given orb 
                           (eg where it can move to when in the state) 
                           - orb diam
-        states_s (dict) : Dict of State Number: 
+        states_f (dict) : Dict of State Number: 
                             [Expected Number of itterations to stay in state, before 
                              identifying new state to transition to,
                              Stv of Number of itterations to stay in state]
@@ -276,6 +277,44 @@ def gen_states(c_key, n_states, array_shape, lb_orbs, ub_orbs, fix_avg=20, fix_s
 
 
     return n_key, states_i, states_c, states_f
+
+
+def gen_state_durations(c_key, n_states, fix_avg, fix_stv, fix_stv_stv):
+    """_summary_
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        fix_avg (int) : The expected average of the number of itterations a state stays fixed
+        fix_stv (float) : The Standard Deviation of the expected number of itterations 
+                         a state stays fixed
+        fix_stv_stv (float) : Standard Deviation of the standard derivations of 
+                              the expected number of itterations a state stays fixed
+                              
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        states_f (dict) : Dict of State Number: 
+                            [Expected Number of itterations to stay in state, before 
+                             identifying new state to transition to,
+                             Stv of Number of itterations to stay in state]
+    """
+    states_f = dict()
+    
+    n_key, subkey = jax.random.split(c_key)
+    state_duration_avgs = fix_stv*(jax.random.normal(subkey, shape=(n_states,))) + fix_avg
+    min_state_duration = max([0, fix_avg - fix_stv*3])
+    state_duration_avgs = jnp.clip(state_duration_avgs, a_min=min_state_duration)
+
+    n_key, subkey = jax.random.split(n_key)
+    state_duration_variances = fix_stv_stv*(jax.random.normal(subkey, shape=(n_states,))) + fix_stv
+    state_duration_variances = jnp.clip(state_duration_variances, a_min=0.1)
+    
+    for state in range(n_states):
+        state_dur_avg, state_dur_stv = state_duration_avgs[state], state_duration_variances[state]
+        states_f[state] = (state_dur_avg, state_dur_stv)
+        
+    return n_key, states_f
 
 
 def get_region(array_shape, corner, region_d, orb_diam, sq=True):
@@ -1017,10 +1056,11 @@ def vis_state_trans2(n_states, st_st, st_end):
     save_arrs = True
     save_figs = True
     array_shape = (120, 120)
+    j = -1000 #May break, new parameter. Not sure it they'll like negatives.
     
     n_key, corners = simulate_corners(c_key, states_c, st_st)
-    transition_to_state(n_key, states_c, st_st, st_end, save_arrs, save_figs, corners, 
-                        img_save_folder, arr_save_folder, array_shape, epsi=0.7, lazy=True)
+    transition_to_state(n_key, states_c, st_st, st_end, save_arrs, save_figs, corners, j,
+                        img_save_folder, arr_save_folder, array_shape, epsi=0.85, lazy=True)
     
 
 def simulate_corners(c_key, states_c, st):
@@ -1058,6 +1098,19 @@ def simulate_corners(c_key, states_c, st):
     corners = jnp.array(corners)
     return n_key, corners
 
+
+def first_n(my_dict, n_orbs):
+    """
+    Assuming your dictionary has keys with numbers, keeps only the 
+    first n of them
+    """
+    
+    n_dict = dict()
+    for k, v in my_dict.items():
+        k = int(k)
+        if k < n_orbs: #index orbs from 0
+            n_dict[k] = v
+    return n_dict
 
 ###################
 # Full Simulation #
@@ -1205,8 +1258,44 @@ def full_states_load(n_states, save_loc = my_vars.generatedDataPath):
     return states_i, states_c, states_f, n_key
 
 
-def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, corners, 
-                        img_save_folder, arr_save_folder, array_shape, epsi=0.7, lazy=True):
+def get_next_state(c_key, adj_mat, from_st):
+    """
+    Gets the next state depending on the current state and adjacency matrix.
+
+    Inputs:
+    --------
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        adj_mat (jnp array) : doubly stochastic matrix thats ~mostly symetric 
+                                (up to ~3 orders of magnitude)
+        from_st (int): State to transition from
+
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        next_st (int) : State transitioning to
+    """
+    n_key, subkey = jax.random.split(c_key)
+    n_states = len(adj_mat)
+    
+    transition_probs = adj_mat[from_st]
+    if sum(transition_probs) == 1:
+        transition_locs = range(n_states)
+    else:
+        print("Adj matrix row %d didn't sum to 1"%from_st)
+        transition_locs = range(n_states + 1)
+        last_st_prob = 1 - sum(transition_probs)
+        transition_probs = [t for t in transition_probs]
+        transition_probs.append(last_st_prob)
+        
+    next_st = jax.random.choice(subkey, transition_locs, transition_probs)
+    if next_st == n_states:
+        n_key, next_st = get_next_state(n_key, adj_mat, from_st)
+        
+    return n_key, next_st
+
+
+def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, corners, j, 
+                        img_save_folder, arr_save_folder, array_shape, epsi=0.85, lazy=True):
     """
     Transitions between 2 states, potentially saving the info generated along the way.
 
@@ -1225,6 +1314,7 @@ def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, co
         corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
                             lowest x, lowest y valued corner a box around the 
                             orb at index i would be
+        j (int) : overall iteration number
         img_save_folder (path): Path to save visuals of arrays
         arr_save_folder (path): Path to save arrays
         array_shape (tup) : (x size of imgs/arrays, y size of imgs/arrays)
@@ -1238,22 +1328,26 @@ def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, co
         n_corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
                               lowest x, lowest y valued corner a box around the 
                               orb at index i ended up at the finish of the simulation
+        data_frame_all (lst of lsts) : Contain info from this cycle, eg:
+                                       j, key for each step, start state, end state, arrived,
+                                       arrived per orb, corner per orb.
+        j (int) : overall iteration number
     """
     
-    init_info = states_c[st_st]
+    data_frame_all = []
     dests, diams = get_diameters_and_dests(states_c, st_end)
     dests_tups = [to_tups(dest) for dest in dests]
     corner_tups = [(int(corner[0]), int(corner[1])) for corner in corners]
     
     init_arrived_prevs = [corner_tups[orb] in dest for orb, dest in enumerate(dests_tups)]     
     
-    j = 0
     n_key = c_key
     n_corners = corners
     arrived_prevs = init_arrived_prevs
     in_dest = all(arrived_prevs)
     
     while not in_dest:
+        
         j += 1
         print("Step: ", j)
         if lazy:
@@ -1287,15 +1381,242 @@ def transition_to_state(c_key, states_c, st_st, st_end, save_arrs, save_figs, co
                 plt.clf()
         
         in_dest = all(arrived_prevs)
+        
+        data_frame_row = [j, n_key, st_st, st_end, in_dest]
+        for arrive in arrived_prevs:
+            data_frame_row.append(arrive)
+        for corner in corners:
+            data_frame_row.append(corner)
+        data_frame_all.append(data_frame_row)
 
-    return n_key, n_corners
+    return n_key, n_corners, data_frame_all, j
 
+
+def stay_in_state(c_key, states_c, st_st, duration, save_arrs, save_figs, corners, j, 
+                        img_save_folder, arr_save_folder, array_shape, epsi=0.85, lazy=True):
+    """
+    Transitions between 2 states, potentially saving the info generated along the way.
+
+    Args:
+        c_key (jnp array) : Jax array/Current Key for generating random numbers
+        states_c (dict) : Dict of State Number: Dict of Orb Numbers: tup of:
+                          - valid region/destination locations for The given orb 
+                          (eg where it can move to when in the state) 
+                          - orb diam
+        st_st (int): State to start at
+        duration (int): Number of itterations to stay in the state for
+        save_arrs (bool): Whether or not to generate and save the arrays of 
+                          frames passed through
+        save_figs (bool): Whether or not to generate and save the images of 
+                          frames passed through
+        corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                            lowest x, lowest y valued corner a box around the 
+                            orb at index i would be
+        j (int) : overall iteration number
+        img_save_folder (path): Path to save visuals of arrays
+        arr_save_folder (path): Path to save arrays
+        array_shape (tup) : (x size of imgs/arrays, y size of imgs/arrays)
+        epsi (float in [.5,1]) : Probability of moving towards the destination 
+                                 (in aggregate) 
+        lazy (bool): Whether to use the non-jax version of things.
+        
+    Returns:
+    --------
+        n_key (jnp array) : new key for generating new random numbers
+        n_corners (jnp arr) : jnp array of (x,y) pairs indicating where the 
+                              lowest x, lowest y valued corner a box around the 
+                              orb at index i ended up at the finish of the simulation
+        data_frame_all (lst of lsts) : Contain info from this cycle, eg:
+                                       j, key for each step, start state, end state, arrived,
+                                       arrived per orb, corner per orb.
+        j (int) : overall iteration number
+    """
+    data_frame_all = []
+    dests, diams = get_diameters_and_dests(states_c, st_st)
+    
+    init_arrived_prevs = [True for i in range(corners)]     
+    
+    n_key = c_key
+    n_corners = corners
+    arrived_prevs = init_arrived_prevs
+    in_dest = all(arrived_prevs)
+    
+    for i in range(duration):
+        j += 1
+        print("Step: ", j)
+        if lazy:
+            n_key, n_corners, arrived_prevs = all_orbs_one_st_lazy(
+                n_key, n_corners, states_c, st_st, array_shape, epsi, arrived_prevs, 
+                sq=True)
+        else:
+            n_key, n_corners, arrived_prevs = all_orbs_one_st(
+                n_key, n_corners, states_c, st_st, array_shape, epsi, arrived_prevs, 
+                sq=True)
+        
+        if save_arrs | save_figs:
+            canvas = jnp.ones(array_shape)
+            for orb in range(len(diams)):
+                orb_diam = diams[orb]
+                trans_to = n_corners[orb]
+                orb_coords = get_orb_pts(array_shape, trans_to, orb_diam)
+                xs_orb, ys_orb = zip(*orb_coords)
+
+                canvas = canvas.at[xs_orb, ys_orb].set(0) #Draw current orb
+
+            if save_arrs:
+                arr_fname = arr_save_folder%j
+                jnp.save(arr_fname, canvas)
+
+            if save_figs:
+                plt.imshow(canvas, cmap='hot', interpolation='nearest')
+                plt.axis([0, array_shape[0], 0, array_shape[1]])
+                plt_fname = img_save_folder%j
+                plt.savefig(plt_fname)
+                plt.clf()
+        
+        in_dest = all(arrived_prevs)
+        
+        data_frame_row = [j, n_key, st_st, st_st, in_dest]
+        for arrive in arrived_prevs:
+            data_frame_row.append(arrive)
+        for corner in corners:
+            data_frame_row.append(corner)
+        data_frame_all.append(data_frame_row)
+
+    return n_key, n_corners, data_frame_all, j
+
+
+def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st, 
+                    regen_stvs=True, tot_steps=10000, epsi=0.85, p=0.1,
+                    save_arrs=True, save_figs=True, lazy=True, 
+                    img_save_folder=my_vars.orbsToStateP, 
+                    arr_save_folder=my_vars.rawArraysP, 
+                    pickup=False):
+    """
+    Runs a full simulation.
+
+    Args:
+        c_key (_type_): _description_
+        n_states_to_use (_type_): _description_
+        n_states (_type_): _description_
+        array_shape (_type_): _description_
+        st_st (_type_): _description_
+        regen_stvs (bool, optional): _description_. Defaults to True.
+    """
+    
+        
+    states_i, states_c, states_f, bleh_key = full_states_load(n_states)
+    states_c = first_n(states_c, n_states_to_use)
+    if regen_stvs:
+        fix_avg = 50
+        fix_stv = 10
+        fix_stv_stv = 5
+        n_key, states_f = gen_state_durations(c_key, n_states_to_use, 
+                                              fix_avg, fix_stv, fix_stv_stv)
+    
+    else:
+        states_f = first_n(states_f, n_states_to_use)
+        n_key = c_key
+        
+    n_key, corners = simulate_corners(n_key, states_c, st_st)
+    n_key, adj_mat, G = gen_graph(n_key, n_states_to_use, p, self_loops=False)
+    nn_key = c_key
+    j = 0
+    
+    nn_keys = [nn_key]
+    last_stayed = False
+    last_stays = [False]
+    
+    
+    #Setup my dataframe of information.
+    if pickup:
+        df = pd.read_pickle("my_data.pkl")
+        df_cols = list(df.columns)
+        j = list(df['j'].tail(1))[0]
+        n_key = jnp.array(list(df['out key'].tail(1))[0])
+        st_st = list(df['end state'].tail(1))[0] #Check this?
+        last_corners = []
+        for i in range(len(corners)):
+            col_name = "%d corner"%i
+            corner = list(df[col_name].tail(1))[0]
+            last_corners.append(corner)
+        corners = jnp.array(last_corners)
+        nn_keys.append(nn_key)
+        with open("nn_keys.pickle", 'rb') as f:
+            nn_keys = pickle.load(f)
+            nn_key = nn_keys[-1]
+            
+        with open("last_items.pickle", 'rb') as f:
+            last_stays = pickle.load(f)
+            last_stayed = last_stays[-1]
+        
+    #Or load all my info.
+    else:
+        df_cols = ["j", "out key", "start state", "end state", "arrived"]
+        for i in range(corners):
+            df_cols.append("%d arrived"%i)
+        for i in range(corners):
+            df_cols.append("%d corner"%i)
+        
+        init_data = [j, n_key, st_st, st_st, True]
+        for i in range(corners):
+            init_data.append(True)
+        for c in corners:
+            init_data.append(c)
+        df = pd.DataFrame(init_data, cols=df_cols)
+    
+    while j < tot_steps:
+        cond = (pickup and not last_stayed) | (not pickup)
+        if cond:
+            fix_avg, fix_stv = states_f[st_st]
+            nn_key, nn_subkey = jax.random.split(nn_key)
+            duration = fix_stv*jax.random.normal(nn_subkey) + fix_avg
+            
+            n_key, corners, data_frame_all, j = stay_in_state(
+                            n_key, states_c, st_st, duration, save_arrs, save_figs, corners, j, 
+                            img_save_folder, arr_save_folder, array_shape, epsi, lazy)
+            last_stayed = True
+            last_stays.append(last_stayed)
+            
+            t_df = pd.DataFrame(data_frame_all, cols=df_cols)
+            df = pd.concat([df, t_df])
+            df.to_pickle("my_data.pkl")
+            
+            nn_keys.append(nn_key)
+            with open("nn_keys.pickle", 'wb') as handle:
+                pickle.dump(nn_keys, handle)
+                
+            with open("last_items.pickle", 'wb') as handle:
+                pickle.dump(last_stays, handle)
+        
+        nn_key, nn_subkey = jax.random.split(nn_key)
+        next_st, n_key = get_next_state(nn_subkey, adj_mat, st_st)
+        
+        n_key, corners, data_frame_all, j = transition_to_state(
+                        n_key, states_c, st_st, next_st, save_arrs, save_figs, corners, j, 
+                        img_save_folder, arr_save_folder, array_shape, epsi, lazy)
+        st_st = next_st
+        last_stayed = False
+        last_stays.append(last_stayed)
+        
+        t_df = pd.DataFrame(data_frame_all, cols=df_cols)
+        df = pd.concat([df, t_df])
+        df.to_pickle("my_data.pkl")
+        
+        nn_keys.append(nn_key)
+        with open("nn_keys.pickle", 'wb') as handle:
+            pickle.dump(nn_keys, handle)
+            
+        with open("last_items.pickle", 'wb') as handle:
+            pickle.dump(last_stays, handle)
+        
+        
 
 if __name__ == "__main__":
     array_shape = (100,100)
     #orb_moving_visual(c_key=MY_KEY, save_folder=my_vars.stateToDestP, n_steps=100)
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=False)
-    #noise_visual()
+    noise_visual()
     #prob_distro_vis(epsi=.8)
     #vis_one_step(c_key=MY_KEY)
     #vis_state_trans(c_key=MY_KEY, img_save_folder=my_vars.orbsToStateP, 
@@ -1306,8 +1627,8 @@ if __name__ == "__main__":
     #vis_graph(G)
     #vis_graph2(adj_mat)
 
-    visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
-                     preload=True, n_states=30, array_shape = (120,120))
+    #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
+    #                 preload=True, n_states=30, array_shape = (120,120))
     """
     states_i, states_c, states_f, n_key = full_states_load(n_states=30)
     for state, orb_d in states_c.items():
@@ -1325,5 +1646,5 @@ if __name__ == "__main__":
                     part_step=2, load_prev=False, start_load=0)
     """
     #print(states_f)
-    vis_state_trans2(n_states=30, st_st=1, st_end=2)
+    #vis_state_trans2(n_states=30, st_st=1, st_end=2)
     
