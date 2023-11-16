@@ -25,7 +25,7 @@ import pathlib_variable_names as var_names
 KEY = jax.random.PRNGKey(23)
 DEFAULT_METRIC = my_metric.closest_sq_dist_tv_mix
 
-def convComb1Clust(convexComboParams, realSpaceImgs, helicites, metric=DEFAULT_METRIC):
+def convComb1Clust(convexComboParams, realSpaceImgs, metric=DEFAULT_METRIC):
     # Should use some args/kwargs stuff here.
     """
     Given a list of images and their corresponding lambdas representing some
@@ -58,8 +58,6 @@ def basic_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS"):
                                         noiseLv=0.25, display=False, saveClusters=False)
         my_n = n_cs
         num_dps = int(n_cs*arraysPerCluster)
-        helicities = 2*jax.random.bernoulli(KEY, shape=(num_dps,)) - 1
-        helicities = tuple(helicities.tolist())
     else:
         names_and_data = opn.openSyntheticData()
         my_n = 3
@@ -69,11 +67,11 @@ def basic_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS"):
 
     data = jnp.array(data)
     images_tup = totuple(data)
-    metric_val = const_gamma_clustering(gamma=0.01, images_tup=images_tup, 
-                                        n_clusters=n_cs, helicities=helicities)
+    metric_val, lambdas_dict = const_gamma_clustering(gamma=0.01, images_tup=images_tup, 
+                                                        n_clusters=n_cs)
 
 
-def const_gamma_clustering(gamma, images_tup, n_clusters, helicities):
+def const_gamma_clustering(gamma, images_tup, n_clusters):
     """
     Clustering given my gamma and params. This is what I want to minimize for 
     a given gamma.
@@ -83,11 +81,12 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, helicities):
         gamma (float) : Gaussian Affinity Kernel param to test
         images_tup (tuple of tuples of tuples) : Set of images being clustered
         n_clusters (int) : number of clusters to test 
-        helicities (tup of 1|-1) : Helicities of the images
     Returns:
     --------
         total_metric_value (float) :  The sum of my metric value across each cluster
                                       for the given gamma value
+        lamdbas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
+                                Where img_i is in the given cluster
     """
     images = jnp.array(images_tup)
     gamma = jnp.array([gamma])
@@ -103,11 +102,11 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, helicities):
     e3 = time.time()
     print("Making Labels cachable: ", e3 - e2)
     e4 = time.time()
-    total_metric_value, lambdas_dict = calc_clusters_lambdas_cached(clusters, images_tup, helicities)
+    total_metric_value, lambdas_dict = calc_clusters_lambdas_cached(clusters, images_tup)
     e5 = time.time()
     print("Performing Convex Minimization: ", e5 - e4)
     #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
-    return total_metric_value
+    return total_metric_value, lambdas_dict
 
 
 def totuple(m):
@@ -203,7 +202,7 @@ def clustering_to_cachable_labels(clusters):
 
 
 @lru_cache
-def calc_clusters_lambdas_cached(clusters, images_tup, helicities):
+def calc_clusters_lambdas_cached(clusters, images_tup):
     """
     Performs the convex combo minimization to find the convex combo params 
     and total metric value for a given clustering.
@@ -215,7 +214,6 @@ def calc_clusters_lambdas_cached(clusters, images_tup, helicities):
     clusters (tuple) : tuple where img at index i has value cluster (int)
         eg [1, 1, 0, 2] is items 1 & 2 in clus 1, 3 in clus 0 and 4 in clus 2. 
     images_tup (tuple) : tuples (all the way down) of data,  
-    helicities (tuple of 1|-1) : Helicities of images
 
     Returns:
     --------
@@ -234,14 +232,14 @@ def calc_clusters_lambdas_cached(clusters, images_tup, helicities):
                                             if x == cluster_label])
         total_metric_value, temp_lambdas_dict = minimization_metric_and_lambdas( \
                                     total_metric_value, cluster_label, \
-                                    relevant_image_indices, images, helicities)
+                                    relevant_image_indices, images)
         lambdas_dict = {**lambdas_dict, **temp_lambdas_dict}
     return total_metric_value, lambdas_dict
 
 
 @partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'helicities'])
 def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
-                                    relevant_image_indices, images, helicities, \
+                                    relevant_image_indices, images, \
                                     eval_criterion = convComb1Clust, \
                                     solver='BFGS'):
     """
@@ -254,7 +252,6 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
     cluster_label_to_eval (int) : the label of the cluster to be evaluated
     relevant_image_indices (jax arr) : array of the indices of images in the given clus
     images (jnp arr) : Data, array of arrays where an img is a n x n array
-    helicities (tuple of 1|-1) : Helicities of corresponding images (hel_i is for img_i)
     eval_criterion (func) : func which given your imgs & lambdas returns the metric val 
     solver (str) : The type of solver to use w. optimize. 
                     Only BFGS currently supported in jax
@@ -268,9 +265,7 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
     """
     temp_lambdas_dict = dict()
     relevant_images = jnp.array(images)[jnp.array(relevant_image_indices)]
-    relevant_helicites = jnp.array(helicities)[jnp.array(relevant_image_indices)]
-    convexCombo = convexMinimization(relevant_images, relevant_helicites, \
-                                     eval_criterion, solver)
+    convexCombo = convexMinimization(relevant_images, eval_criterion, solver)
     min_metric_value = convexCombo['fun']
     clus_lambdas = convexCombo['x']
     frac = len(relevant_images) / len(images)
@@ -281,7 +276,7 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
 
 
 @partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'metric'])
-def convexMinimization(params, helicities, eval_criterion=convComb1Clust, 
+def convexMinimization(params, eval_criterion=convComb1Clust, 
                         solver='SLSQP', metric=DEFAULT_METRIC):
     """
     clusterImages is the usual parameters we're using to form a ~convex combination,
@@ -298,7 +293,7 @@ def convexMinimization(params, helicities, eval_criterion=convComb1Clust,
     mini_d = dict()
     # Prior where everything's equally weighted
     initialLambdaGuesses = np.ones(len(params)) / len(params)
-    arguments = [params, helicities, metric]
+    arguments = [params, metric]
     arguments = tuple(arguments)
 
     finalLambdas = minimize(eval_criterion, initialLambdaGuesses,

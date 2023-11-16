@@ -1579,7 +1579,7 @@ def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st,
             last_stayed = True
             last_stays.append(last_stayed)
             
-            t_df = pd.DataFrame(data_frame_all, cols=df_cols)
+            t_df = pd.DataFrame(data_frame_all, columns=df_cols)
             df = pd.concat([df, t_df])
             df.to_pickle("my_data.pkl")
             
@@ -1591,7 +1591,8 @@ def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st,
                 pickle.dump(last_stays, handle)
         
         nn_key, nn_subkey = jax.random.split(nn_key)
-        next_st, n_key = get_next_state(nn_subkey, adj_mat, st_st)
+        n_key, next_st = get_next_state(nn_subkey, adj_mat, st_st)
+        next_st = int(next_st)
         
         n_key, corners, data_frame_all, j = transition_to_state(
                         n_key, states_c, st_st, next_st, save_arrs, save_figs, corners, j, 
@@ -1600,7 +1601,7 @@ def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st,
         last_stayed = False
         last_stays.append(last_stayed)
         
-        t_df = pd.DataFrame(data_frame_all, cols=df_cols)
+        t_df = pd.DataFrame(data_frame_all, columns=df_cols)
         df = pd.concat([df, t_df])
         df.to_pickle("my_data.pkl")
         

@@ -143,6 +143,7 @@ def gen_random_slope():
     slope = normed_pt[1] / normed_pt[0] #y/x
     return slope
 
+
 def gen_random_center(x_max=100, y_max=100, centering=0.1):
     """
     Generates a random line
