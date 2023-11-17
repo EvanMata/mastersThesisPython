@@ -7,3 +7,4 @@ __pycache__/openRawData.cpython-311.pyc
 *.pickle
 *.pkl
 *.npy
+*.pyc

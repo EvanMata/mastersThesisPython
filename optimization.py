@@ -12,6 +12,7 @@ from jax.nn import softmax
 from itertools import combinations
 from functools import lru_cache, partial
 from jax.scipy.optimize import minimize as minimize
+from scipy.optimize import minimize as min2
 
 import my_metric as my_metric
 import openRawData as opn
@@ -24,6 +25,7 @@ import pathlib_variable_names as var_names
 
 KEY = jax.random.PRNGKey(23)
 DEFAULT_METRIC = my_metric.closest_sq_dist_tv_mix
+
 
 def convComb1Clust(convexComboParams, realSpaceImgs, metric=DEFAULT_METRIC):
     # Should use some args/kwargs stuff here.
@@ -42,11 +44,13 @@ def convComb1Clust(convexComboParams, realSpaceImgs, metric=DEFAULT_METRIC):
 # Main Code #
 #############
 
-def basic_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS"):
+
+def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS"):
     """
     Triest to run a basic clustering example on synthetic data.
 
     Inputs:
+        my_gamma (float) : Value of gamma to use for the tunning.
         use_new_data (bool) :    False use pre-generated data, or
                                  True generate new data
         n_cs (int) :             Number of clusters to generate if use_new_data = True
@@ -67,11 +71,37 @@ def basic_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS"):
 
     data = jnp.array(data)
     images_tup = totuple(data)
-    metric_val, lambdas_dict = const_gamma_clustering(gamma=0.01, images_tup=images_tup, 
+    metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
                                                         n_clusters=n_cs)
+    
+    print("Gamma: ", my_gamma)
+    print("Metric Value: ", metric_val)
+    
+    return metric_val
 
 
-def const_gamma_clustering(gamma, images_tup, n_clusters):
+def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS"):
+    """
+    Tunes the gamma used in my clustering.
+    """
+    fun = basic_ex
+    init_guess = jnp.array([1])
+    arguements = (use_new_data, n_cs, arraysPerCluster, my_method)
+    s = time.time()
+    minResults = min2(fun=fun, x0 = init_guess,
+                            method=my_method, args=arguements)
+    e = time.time()
+    min_metric_value = minResults.fun
+    gamma_value = minResults.x
+    print("Optimal Alpha Value was: ", gamma_value)
+    total_time = e - s
+    print("Total Time: ", total_time)
+    """
+    EDIT TO MAKE SURE USES ALPHA TO GET BEST.
+    """
+
+
+def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
     """
     Clustering given my gamma and params. This is what I want to minimize for 
     a given gamma.
@@ -93,18 +123,22 @@ def const_gamma_clustering(gamma, images_tup, n_clusters):
     s1 = time.time()
     affinities = affinity_matrix(images, gamma)
     e1 = time.time()
-    print("Affinity Time: ", e1 - s1)
+    if print_timing:
+        print("Affinity Time: ", e1 - s1)
     clusters = performClustering(affinities, n_clusters)
     e2 = time.time()
-    print("Clustering Time: ", e2 - e1)
-    clusters = clustering_to_cachable_labels(clusters)
+    if print_timing:
+        print("Clustering Time: ", e2 - e1)
+    clusters = clustering_to_cachable_labels(clusters, n_clusters)
     clusters = tuple(clusters)
     e3 = time.time()
-    print("Making Labels cachable: ", e3 - e2)
+    if print_timing:
+        print("Making Labels cachable: ", e3 - e2)
     e4 = time.time()
     total_metric_value, lambdas_dict = calc_clusters_lambdas_cached(clusters, images_tup)
     e5 = time.time()
-    print("Performing Convex Minimization: ", e5 - e4)
+    if print_timing:
+        print("Performing Convex Minimization: ", e5 - e4)
     #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
     return total_metric_value, lambdas_dict
 
@@ -119,8 +153,9 @@ def totuple(m):
 
 def calcPairAffinity(image1, image2, gamma):
     #Returns a jnp array of 1 float, jnp.sum adds all elements together
-    diff = jnp.abs(jnp.sum(image1 - image2))  
-    return jnp.exp(-gamma*diff)
+    diff = jnp.sum(jnp.abs(image1 - image2))  
+    normed_diff = diff / image1.size
+    return jnp.exp(-gamma*normed_diff)
 
 
 def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
@@ -160,6 +195,10 @@ def performClustering(affinities, n_clusters):
     """
     Spectral clustering with pre-computed affinity matrix.
     """
+    print()
+    print("Affinities: ")
+    print(affinities)
+    print()
     clustering = SpectralClustering(n_clusters=n_clusters,
                                     affinity="precomputed",
                                     random_state=0).fit(affinities)
@@ -172,28 +211,48 @@ def performClustering(affinities, n_clusters):
 ##############################################################
 
 #@jax.jit Maybe jitable but need to find workaround for .count
-def clustering_to_cachable_labels(clusters):
+def clustering_to_cachable_labels(clusters, n_clusters):
     """
     Ensures that [0,0,1,1] & [1,1,0,0] or any other pair 
     of cluster labels that I recieve and are equivalent up to 
-    the cluster labeling scheme all get mapped to the same thing
+    the cluster labeling scheme all get mapped to the same thing.
 
     #Prob a better way to do this. Try to jit?
+
+    Inputs:
+    --------
+        clusters (jnp array?) : 
+        n_clusters (int) : number of clusters to use
+
+    Returns:
+    --------
+        new_clusters (lst) : List of relabeled clusters.
     """
+    
     clusters = list(clusters)
     counts = [clusters.count(x) for x in clusters]
     clus_to_occurances = dict(zip(clusters, counts))
-    counts_list = [count for clus, count in clus_to_occurances.items()]
-
-    for count in set(counts_list):
-        clusts_w_given_count = [i for i, c in enumerate(counts_list) if c == count]
-        initial_indices = sorted([(clusters.index(tied_label), tied_label) \
-                           for tied_label in clusts_w_given_count])
-        for i in range(len(initial_indices)):
-            init_index, clus = initial_indices[i]
-            og_count = clus_to_occurances[clus]
-            clus_to_occurances[clus] = og_count + .1*i
-
+    clus_occ_keys = clus_to_occurances.keys()
+    #Sometimes, nothing is assigned to a given cluster.
+    for i in range(n_clusters):
+        if i not in clus_occ_keys:
+            clus_to_occurances[i] = 0
+    counts_list = sorted(list(set([count for clus, count in clus_to_occurances.items()])))
+    counts_clusts = sorted([(count, clus) for clus, count in clus_to_occurances.items()])
+    for count in counts_list:
+        clusts_w_count = [cc[1] for cc in counts_clusts if cc[0] == count]
+        if count == 0:
+            for i in range(len(clusts_w_count)):
+                clus = clusts_w_count[i]
+                og_count = clus_to_occurances[clus]
+                clus_to_occurances[clus] = og_count + .1*i
+        else:
+            initial_indices = sorted([(clusters.index(tied_label), tied_label) \
+                            for tied_label in clusts_w_count])
+            for i in range(len(initial_indices)):
+                init_index, clus = initial_indices[i]
+                og_count = clus_to_occurances[clus]
+                clus_to_occurances[clus] = og_count + .1*i
     data = [(count, clus) for clus, count in clus_to_occurances.items()]
     sorted_data = sorted(data)
     clusts_mapping = dict([(t[1], i) for i, t in enumerate(sorted_data)])
@@ -211,19 +270,19 @@ def calc_clusters_lambdas_cached(clusters, images_tup):
 
     Inputs:
     -------
-    clusters (tuple) : tuple where img at index i has value cluster (int)
-        eg [1, 1, 0, 2] is items 1 & 2 in clus 1, 3 in clus 0 and 4 in clus 2. 
-    images_tup (tuple) : tuples (all the way down) of data,  
+        clusters (tuple) : tuple where img at index i has value cluster (int)
+            eg [1, 1, 0, 2] is items 1 & 2 in clus 1, 3 in clus 0 and 4 in clus 2. 
+        images_tup (tuple) : tuples (all the way down) of data,  
 
     Returns:
     --------
-    total_metric_value (float) :  the sum of my metric value across each cluster
-    lamdbas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
-        Where img_i is in the given cluster
+        total_metric_value (jnp array) :  the sum of my metric value across each cluster
+        lamdbas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
+            Where img_i is in the given cluster
     """
     images = jnp.array(images_tup)
     lambdas_dict = dict()
-    total_metric_value = 0
+    total_metric_value = jnp.array([0])
     all_cluster_labels = set(clusters)
     clusters = jnp.array(clusters)
     # Maybe vmap-able? lambdas_dict may be annoying to construct
@@ -237,7 +296,7 @@ def calc_clusters_lambdas_cached(clusters, images_tup):
     return total_metric_value, lambdas_dict
 
 
-@partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'helicities'])
+@partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
 def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
                                     relevant_image_indices, images, \
                                     eval_criterion = convComb1Clust, \
@@ -248,20 +307,20 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
 
     Inputs:
     --------
-    total_metric_value (float) : metric value evaluated on the previous cluster(s)
-    cluster_label_to_eval (int) : the label of the cluster to be evaluated
-    relevant_image_indices (jax arr) : array of the indices of images in the given clus
-    images (jnp arr) : Data, array of arrays where an img is a n x n array
-    eval_criterion (func) : func which given your imgs & lambdas returns the metric val 
-    solver (str) : The type of solver to use w. optimize. 
-                    Only BFGS currently supported in jax
+        total_metric_value (float) : metric value evaluated on the previous cluster(s)
+        cluster_label_to_eval (int) : the label of the cluster to be evaluated
+        relevant_image_indices (jax arr) : array of the indices of images in the given clus
+        images (jnp arr) : Data, array of arrays where an img is a n x n array
+        eval_criterion (func) : func which given your imgs & lambdas returns the metric val 
+        solver (str) : The type of solver to use w. optimize. 
+                        Only BFGS currently supported in jax
 
     Returns:
     --------
-    total_metric_value (float) : the input total metric value with the 
-        current cluster's metric value added on w. the relevant weighting frac 
-        of the total number of pts
-    temp_lambdas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
+        total_metric_value (float) : the input total metric value with the 
+            current cluster's metric value added on w. the relevant weighting frac 
+            of the total number of pts
+        temp_lambdas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
     """
     temp_lambdas_dict = dict()
     relevant_images = jnp.array(images)[jnp.array(relevant_image_indices)]
@@ -289,6 +348,19 @@ def convexMinimization(params, eval_criterion=convComb1Clust,
     of our bounds and constraints (softmax will keep them each between 0-1 and ensure
     they sum to 1)
     
+    Inputs:
+    --------
+        params (jnp array) : Array of images within a cluster which we're making 
+                             A convex combination of.
+        eval_critetion (func) : Function that I want to minimize 
+        solver (str) : Solver supported by jax.scipy.minimize to use 
+        metric (func) : Used in eval_criterion to calculate a score for 
+                        the convex combination created in eval_criterion.
+
+    Returns:
+    --------
+        mini_d (dict) : dict of lambda's that are optimized and my objective
+                        function value
     """
     mini_d = dict()
     # Prior where everything's equally weighted
@@ -305,14 +377,9 @@ def convexMinimization(params, eval_criterion=convComb1Clust,
     return mini_d
 
 
+
+
 if __name__ == "__main__":
-    basic_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
-    # gotta adjust convComb1Clust to 
-    # - not softmax over all inputs, want to split them into the 2 halves
-    # - 
-
-
-    # use where clause to grab indices w. helicity =1, -1
-    # make 2 convArrays & imgs to Eval
-    # import construct real space, use its evaluation to get img to eval w. metric
+    gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS")
+    # basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
      

@@ -4,7 +4,7 @@ import jax
 
 import numpy as np
 import jax.numpy as jnp
-import clustering as clu
+import optimization as clu
 import openRawData as opn
 #import construct_real_space as con
 import genRealisticData as genR
@@ -167,11 +167,11 @@ def visualize_fft(my_mode=' 1-1', using_helicity=True):
 
 
 def t1_clustering_caches():
-    # Should be YES
+    # Should be NOT SAME
     l1 = [0,0,1,1,]
     l2 = [1,1,0,1]
-    nl1 = clu.clustering_to_cachable_labels(l1)
-    nl2 = clu.clustering_to_cachable_labels(l2)
+    nl1 = clu.clustering_to_cachable_labels(l1, 2)
+    nl2 = clu.clustering_to_cachable_labels(l2, 2)
 
     for i in range(len(nl1)):
         if nl1[i] != nl2[i]:
@@ -181,11 +181,11 @@ def t1_clustering_caches():
 
 
 def t2_clustering_caches():
-    # Should be NO, order of points matters
+    # Should be NOT SAME, order of points matters
     l1 = [0,0,1,1,2]
     l2 = [1,1,0,2,2]
-    nl1 = clu.clustering_to_cachable_labels(l1)
-    nl2 = clu.clustering_to_cachable_labels(l2)
+    nl1 = clu.clustering_to_cachable_labels(l1, 3)
+    nl2 = clu.clustering_to_cachable_labels(l2, 3)
 
     for i in range(len(nl1)):
         if nl1[i] != nl2[i]:
@@ -195,11 +195,11 @@ def t2_clustering_caches():
 
 
 def t3_clustering_caches():
-    # Should be YES, order of points matters
+    # Should be SAME, order of points matters
     l1 = [0,0,1,1,2,3,4]
     l2 = [1,1,0,0,2,4,3]
-    nl1 = clu.clustering_to_cachable_labels(l1)
-    nl2 = clu.clustering_to_cachable_labels(l2)
+    nl1 = clu.clustering_to_cachable_labels(l1, 5)
+    nl2 = clu.clustering_to_cachable_labels(l2, 5)
 
     for i in range(len(nl1)):
         if nl1[i] != nl2[i]:
@@ -209,11 +209,11 @@ def t3_clustering_caches():
 
 
 def t4_clustering_caches():
-    # Should be NO, order of points matters
+    # Should be NOT SAME, order of points matters
     l1 = [0,0,1,1,2,3,4,5,5,5]
     l2 = [5,1,5,1,0,0,2,4,3,5]
-    nl1 = clu.clustering_to_cachable_labels(l1)
-    nl2 = clu.clustering_to_cachable_labels(l2)
+    nl1 = clu.clustering_to_cachable_labels(l1, 6)
+    nl2 = clu.clustering_to_cachable_labels(l2, 6)
 
     for i in range(len(nl1)):
         if nl1[i] != nl2[i]:
@@ -223,11 +223,25 @@ def t4_clustering_caches():
 
 
 def t5_clustering_caches():
-    # Should be NO, order of points matters
+    # Should be YES?, order of points matters
     l1 = [0,0,1,1,5,5,5,2,3,4]
-    l2 = [1,1,0,0,5,5,5,2,4,3]
-    nl1 = clu.clustering_to_cachable_labels(l1)
-    nl2 = clu.clustering_to_cachable_labels(l2)
+    l2 = [1,1,0,0,5,5,5,3,4,2]
+    nl1 = clu.clustering_to_cachable_labels(l1, 6)
+    nl2 = clu.clustering_to_cachable_labels(l2, 6)
+
+    for i in range(len(nl1)):
+        if nl1[i] != nl2[i]:
+            print("NOT the same clustering")
+            return
+    print("SAME clustering")
+
+
+def t6_clustering_caches():
+    # Should be YES 
+    l1 = [0,0,5,5,5,2,3,4]
+    l2 = [1,1,5,5,5,3,4,2]
+    nl1 = clu.clustering_to_cachable_labels(l1, 6)
+    nl2 = clu.clustering_to_cachable_labels(l2, 6)
 
     for i in range(len(nl1)):
         if nl1[i] != nl2[i]:
@@ -345,6 +359,7 @@ def t_vmap_region():
     vmaped_region = jax.vmap(create_region, (0,0,0,0), 0)
     regions = vmaped_region(x_mins, x_maxs, y_mins, y_maxs)
 
+
 def gen_random_uni_arr(my_shape=(1000,)):
     key = random.PRNGKey(758493)  # Random seed is explicit in JAX
     return random.uniform(key, shape=my_shape)
@@ -437,7 +452,7 @@ if __name__ == "__main__":
     #visualize_fft()
     #print(clustering_to_cachable_labels([0,0,1,1]))
     #print(clustering_to_cachable_labels([1,1,0,0]))
-    #t5_clustering_caches()
+    t6_clustering_caches()
     #t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
     #arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]], [[3,1],[1,3]], [[1,0],[0,1]]])
     #t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)
@@ -449,4 +464,4 @@ if __name__ == "__main__":
     #t_vmapped_3()
     #comp_vmap_4()
     #t_vmap_region()
-    t_pdist_ok()
+    #t_pdist_ok()

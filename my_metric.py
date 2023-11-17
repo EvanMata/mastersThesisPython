@@ -51,6 +51,7 @@ def distFromPureColor(image, pureColors=[0, 1]):
 
     return distOverall
 
+
 def closest_sq_dist_tv_mix(image, lambdaVal=0.5): 
     """
     A convex combination of total variation and square distance from the closest domain/pureColor

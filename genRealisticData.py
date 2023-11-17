@@ -184,6 +184,31 @@ def gen_low_freq_noise(array_shape, c_key, l_bd=-1, u_bd=1,
     return noise, f_space, n_key
 
 
+def gen_all_noise(c_key, array_shape, num, save_folder=my_vars.rawNoiseP):
+    """
+    Generates num of noise arrays with the given shape and saves them.
+    """
+    n_key = c_key
+    for i in range(num):
+        noise, f_noise, n_key = gen_low_freq_noise_rot(array_shape, n_key, l_bd=-1, u_bd=1, 
+                                cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
+        noise_fname = save_folder%i
+        jnp.save(noise_fname, noise)
+
+
+def combine_signal_noise(signal_arr, noise_arr):
+    signal_arr = signal_arr - 0.5
+    out_arr = signal_arr*noise_arr
+    return out_arr
+        
+
+def combine_signal_noise(signal_arr, noise_arr):
+    signal_arr = signal_arr - 0.5
+    composite_arr = signal_arr*noise_arr
+    composite_arr = composite_arr + 0.5 #Back to [0,1] in theory
+    return composite_arr
+
+
 ####################
 # State Generation #
 ####################
@@ -1111,6 +1136,7 @@ def first_n(my_dict, n_orbs):
             n_dict[k] = v
     return n_dict
 
+
 ###################
 # Full Simulation #
 ###################
@@ -1611,8 +1637,7 @@ def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st,
             
         with open("last_items.pickle", 'wb') as handle:
             pickle.dump(last_stays, handle)
-        
-        
+
 
 if __name__ == "__main__":
     array_shape = (100,100)

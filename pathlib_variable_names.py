@@ -46,7 +46,8 @@ orbsToStateF = imagesPath.joinpath( "orbsToState" )
 orbsToStateP = str(orbsToStateF.joinpath( "state_moving_frame_%d" ))
 rawArraysF = imagesPath.joinpath( "orbArrays" )
 rawArraysP = str(rawArraysF.joinpath( "orb_array_frame_%d" ))
-
+rawNoiseF = imagesPath.joinpath( "noise" )
+rawNoiseP = str(rawNoiseF.joinpath( "noise_array_frame_%d" ))
 
 
 '''

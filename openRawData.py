@@ -212,6 +212,7 @@ def grab_calced_modes():
 
     return pos_calced_pieces, neg_calced_pieces
 
+
 def yield_mode_pieces():
     '''
     YIELD FUNCS DO NOT RUN/COMPILE UNTIL USED
@@ -279,6 +280,7 @@ def pre_gen_d_open_and_combine_pieces(my_mode, helicity, avg=False):
     """
     pieces = grab_mode_items(my_mode=my_mode, use_helicty=True, helicity=helicity, and_topos=False)
     return open_and_combine_pieces(pieces, avg)
+
 
 if __name__ == "__main__":
     #openAllSynthData(n_clus=3, n_pts=3, disply=True)
