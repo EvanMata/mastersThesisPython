@@ -1519,7 +1519,14 @@ def full_simulation(c_key, n_states_to_use, n_states, array_shape, st_st,
         n_key = c_key
         
     n_key, corners = simulate_corners(n_key, states_c, st_st)
-    n_key, adj_mat, G = gen_graph(n_key, n_states_to_use, p, self_loops=False)
+    n_key, adj_mat, G = gen_graph(n_key, n_states_to_use, p, self_loops=True)
+    
+    with open("Graph.pickle", 'wb') as handle:
+        pickle.dump(G, handle)
+                
+    with open("Adjacency_Matrix.pickle", 'wb') as handle:
+        pickle.dump(adj_mat, handle)
+    
     nn_key = c_key
     j = 0
     
