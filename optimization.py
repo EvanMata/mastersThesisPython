@@ -45,29 +45,32 @@ def convComb1Clust(convexComboParams, realSpaceImgs, metric=DEFAULT_METRIC):
 #############
 
 
-def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS"):
+def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS", 
+             provided_data=None):
     """
     Triest to run a basic clustering example on synthetic data.
 
     Inputs:
+    --------
         my_gamma (float) : Value of gamma to use for the tunning.
         use_new_data (bool) :    False use pre-generated data, or
                                  True generate new data
-        n_cs (int) :             Number of clusters to generate if use_new_data = True
+        n_cs (int) :             Number of clusters to fit (and generate if using use_new_data=True)
         arraysPerCluster (int) : Number of fake data pts to generate in each cluster
         solver (str) :           What solver to use (only one works in jax at the moment - BFGS)
+        provided_data (lst) :    A list of tuples of (cluster, data point)
+    Returns: 
+    --------
+        metric_val (float) : Value of my metric for the given clustering 
     """
     if use_new_data:
         names_and_data = dg.genClusters(numClusters=n_cs, arraysPerCluster=arraysPerCluster, n1=100, n2=100,
                                         noiseLv=0.25, display=False, saveClusters=False)
-        my_n = n_cs
-        num_dps = int(n_cs*arraysPerCluster)
     else:
-        names_and_data = opn.openSyntheticData()
-        my_n = 3
+        names_and_data = provided_data
 
+    names = [i[0] for i in names_and_data] #Unused
     data = [i[1] for i in names_and_data]
-    names = [i[0] for i in names_and_data]
 
     data = jnp.array(data)
     images_tup = totuple(data)
@@ -76,8 +79,36 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
     
     print("Gamma: ", my_gamma)
     print("Metric Value: ", metric_val)
+    print("Lambdas: ")
+    print(lambdas_dict)
+    print()
     
     return metric_val
+
+
+def get_info(my_gamma, provided_data, n_cs):
+    """
+    Same as basic_clustering, but returns my lambdas dict
+    
+    Inputs:
+    --------
+        my_gamma (float) : Value of gamma to use for the tunning.
+        provided_data (lst) :    A list of tuples of (cluster, data point)
+        n_cs (int) :             Number of clusters to fit
+    Returns: 
+    --------
+        metric_val (float) : Value of my metric for the given clustering 
+        lamdbas_dict (dict) : dict of cluster num: [(img lambda, img num), (), ...]
+    """
+    
+    data = [i[1] for i in provided_data]
+
+    data = jnp.array(data)
+    images_tup = totuple(data)
+    metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
+                                                        n_clusters=n_cs)
+    
+    return metric_val, lambdas_dict
 
 
 def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS"):
@@ -380,6 +411,6 @@ def convexMinimization(params, eval_criterion=convComb1Clust,
 
 
 if __name__ == "__main__":
-    gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS")
-    # basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
+    # gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS")
+    basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
      

@@ -1688,6 +1688,6 @@ if __name__ == "__main__":
                     save_arrs=True, save_figs=True, lazy=True, 
                     img_save_folder=my_vars.orbsToStateP, 
                     arr_save_folder=my_vars.rawArraysP, 
-                    pickup=False)
+                    pickup=True)
     #"""
     
