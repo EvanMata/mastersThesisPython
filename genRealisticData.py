@@ -184,12 +184,16 @@ def gen_low_freq_noise(array_shape, c_key, l_bd=-1, u_bd=1,
     return noise, f_space, n_key
 
 
-def gen_all_noise(c_key, array_shape, num, save_folder=my_vars.rawNoiseP):
+def gen_all_noise(c_key, array_shape, num, save_folder=my_vars.rawNoiseP, skipTo=0):
     """
     Generates num of noise arrays with the given shape and saves them.
     """
     n_key = c_key
-    for i in range(num):
+    for i in range(0, skipTo):
+        n_key, subkey = jax.random.split(n_key)
+
+    for i in range(skipTo, num):
+        print(i)
         noise, f_noise, n_key = gen_low_freq_noise_rot(array_shape, n_key, l_bd=-1, u_bd=1, 
                                 cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
         noise_fname = save_folder%i
@@ -1681,7 +1685,7 @@ if __name__ == "__main__":
     """
     #print(states_f)
     #vis_state_trans2(n_states=30, st_st=1, st_end=2)
-    #"""
+    """
     full_simulation(c_key=MY_KEY, n_states_to_use=20, n_states=30, 
                     array_shape=(120,120), st_st = 0, 
                     regen_stvs=True, tot_steps=10000, epsi=0.85, p=0.1,
@@ -1689,5 +1693,6 @@ if __name__ == "__main__":
                     img_save_folder=my_vars.orbsToStateP, 
                     arr_save_folder=my_vars.rawArraysP, 
                     pickup=True)
-    #"""
-    
+    """
+    gen_all_noise(c_key=MY_KEY, array_shape=(120,120), num=10000, \
+                  save_folder=my_vars.rawNoiseP, skipTo=300)
