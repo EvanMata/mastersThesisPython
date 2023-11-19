@@ -186,7 +186,9 @@ def calcPairAffinity(image1, image2, gamma):
     #Returns a jnp array of 1 float, jnp.sum adds all elements together
     diff = jnp.sum(jnp.abs(image1 - image2))  
     normed_diff = diff / image1.size
-    return jnp.exp(-gamma*normed_diff)
+    val = jnp.exp(-gamma*normed_diff)
+    val = jnp.array(val, dtype=jnp.float16)
+    return 
 
 
 def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \

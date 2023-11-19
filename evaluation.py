@@ -151,7 +151,7 @@ def eval_clustering(my_gamma = 0.2, n_cs = 17, print_it=True, data_arr_path=my_v
     return 
 
 
-def load_data(data_arr_path=my_vars.rawArraysF):
+def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
     """
@@ -161,6 +161,7 @@ def load_data(data_arr_path=my_vars.rawArraysF):
         if str(f)[-4:] == ".npy":
             full_f = data_arr_path.joinpath( f )
             arr = jnp.load( full_f )
+            arr = jnp.array(arr, dtype=dtype) #Reducing memory
             names_and_data.append((f, arr))
         
     return names_and_data
