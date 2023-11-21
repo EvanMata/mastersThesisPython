@@ -169,5 +169,5 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=5000):
 
 
 if __name__ == "__main__":
-    eval_clustering(cap=100)
+    eval_clustering(cap=5000)
     

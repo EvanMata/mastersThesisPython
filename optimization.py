@@ -220,7 +220,7 @@ def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
     affinities = affinities.reshape(-1)
     arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
     arr = arr + arr.T
-    arr = arr + jnp.identity(n_imgs)
+    arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
     return arr
 
 
