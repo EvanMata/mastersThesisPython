@@ -160,7 +160,7 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
     e2 = time.time()
     if print_timing:
         print("Clustering Time: ", e2 - e1)
-    clusters = clustering_to_cachable_labels(clusters, n_clusters)
+    # clusters = clustering_to_cachable_labels(clusters, n_clusters) # If caching doesn't work, don't use this
     clusters = tuple(clusters)
     e3 = time.time()
     if print_timing:
@@ -187,8 +187,8 @@ def calcPairAffinity(image1, image2, gamma):
     diff = jnp.sum(jnp.abs(image1 - image2))  
     normed_diff = diff / image1.size
     val = jnp.exp(-gamma*normed_diff)
-    val = jnp.array(val, dtype=jnp.float16)
-    return 
+    val = val.astype(jnp.float16)
+    return val
 
 
 def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
@@ -213,9 +213,9 @@ def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
     """
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
+    arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
     v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
     imgs_1, imgs_2 = zip(*list(combinations(arr_of_imgs,2)))
-    arr = jnp.zeros((n_imgs, n_imgs))
     affinities = v_cPA(jnp.array(imgs_1), jnp.array(imgs_2), gamma)
     affinities = affinities.reshape(-1)
     arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
@@ -293,7 +293,7 @@ def clustering_to_cachable_labels(clusters, n_clusters):
     return new_clusters
 
 
-@lru_cache
+#@lru_cache # Possibly incompatible with jax???
 def calc_clusters_lambdas_cached(clusters, images_tup):
     """
     Performs the convex combo minimization to find the convex combo params 
@@ -322,10 +322,10 @@ def calc_clusters_lambdas_cached(clusters, images_tup):
     for cluster_label in all_cluster_labels:
         relevant_image_indices = jnp.array([i for i, x in enumerate(clusters) \
                                             if x == cluster_label])
-        total_metric_value, temp_lambdas_dict = minimization_metric_and_lambdas( \
+        total_metric_value, lambdas_and_indices = minimization_metric_and_lambdas( \
                                     total_metric_value, cluster_label, \
                                     relevant_image_indices, images)
-        lambdas_dict = {**lambdas_dict, **temp_lambdas_dict}
+        lambdas_dict[cluster_label] = lambdas_and_indices
     return total_metric_value, lambdas_dict
 
 
@@ -353,6 +353,7 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
         total_metric_value (float) : the input total metric value with the 
             current cluster's metric value added on w. the relevant weighting frac 
             of the total number of pts
+        lambdas_and_indices (list) : List of (item lambda, item index)
         temp_lambdas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
     """
     temp_lambdas_dict = dict()
@@ -363,8 +364,7 @@ def minimization_metric_and_lambdas(total_metric_value, cluster_label_to_eval, \
     frac = len(relevant_images) / len(images)
     total_metric_value += min_metric_value*frac
     lambdas_and_indices = list(zip(clus_lambdas, relevant_image_indices))
-    temp_lambdas_dict[cluster_label_to_eval] = lambdas_and_indices
-    return total_metric_value, temp_lambdas_dict
+    return total_metric_value, lambdas_and_indices
 
 
 @partial(jax.jit, static_argnames=['eval_criterion', 'solver', 'metric'])

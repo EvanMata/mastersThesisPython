@@ -36,16 +36,13 @@ def format_nice(lambdas_dict):
     cluster_lambdas = defaultdict(list)
     clustering = []
     calc_lambdas = []
-    
     for clus, pts_and_lambdas in lambdas_dict.items():
-        clus_l = int(clus)
-        pt_lambda, pt = pts_and_lambdas
-        pt = int(pt)
-        pt_lambda = float(pt_lambda)
+        pts_lambdas, pts = zip(*pts_and_lambdas)
         # cluster_pts[clus_l].append(pt) # Commented out to save memory
         # cluster_lambdas[clus_l].append(pt_lambda)
-        clustering.append((pt, clus_l))
-        calc_lambdas.append((pt, pt_lambda))
+        clus_l = jnp.full(len(pts), clus)
+        clustering.extend(zip(pts, clus_l))
+        calc_lambdas.extend(zip(pts, pts_lambdas))
         
     clustering = sorted(clustering)
     clustering = [c[1] for c in clustering]
@@ -55,14 +52,14 @@ def format_nice(lambdas_dict):
     return clustering, calc_lambdas, cluster_pts, cluster_lambdas
 
 
-def load_true(data_name="my_data.pkl"):
+def load_true(data_name="my_data.pkl", cap=10000):
     #Loads the technically correct clusters
     df = pd.read_pickle("my_data.pkl")
-    true_clusters = list(df['end state'])
+    true_clusters = list(df['end state'])[:cap]
     return true_clusters
 
 
-def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs=16):
+def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs=16, cap=10000):
     '''
     Some images were transitioning between two states. Find 
     the indices where start and end were the same.
@@ -76,9 +73,11 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
         follow_up (int) : How many of the next frames/indices to include in the close indices 
                           after a leaving a state
         n_orbs (int) : Number of orbs in the correct clustering
+        cap (int) : How many datapoints to use
     '''
     
     df = pd.read_pickle("my_data.pkl")
+    df = df.head(cap)
     end_states = list(df['end state'])
     start_states = list(df['start state'])
     good_indices = [i for i in range(len(end_states)) if \
@@ -112,13 +111,13 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
     return good_indices, close_indices, transitory_indices
 
 
-def eval_clustering(my_gamma = 0.2, n_cs = 17, print_it=True, data_arr_path=my_vars.rawArraysF):
+def eval_clustering(my_gamma = 0.2, n_cs = 17, cap=10000, print_it=True, data_arr_path=my_vars.rawArraysF):
     """
     Calculates how many of the images were classified into the correct frames
     and some statistics on the lambdas of of my various groupings
     """
-    true_clusters = load_true()
-    names_and_data = load_data(data_arr_path)
+    true_clusters = load_true(cap=cap)
+    names_and_data = load_data(data_arr_path, cap=cap)
     metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs)
     calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
     good_indices, approx_indices, transitory_indices = find_useful_indices()
@@ -151,22 +150,24 @@ def eval_clustering(my_gamma = 0.2, n_cs = 17, print_it=True, data_arr_path=my_v
     return 
 
 
-def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16):
+def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=5000):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
     """
     names_and_data = []
     my_files = os.listdir(data_arr_path)
+    i = 0
     for f in my_files:
-        if str(f)[-4:] == ".npy":
+        if str(f)[-4:] == ".npy" and i < cap:
             full_f = data_arr_path.joinpath( f )
             arr = jnp.load( full_f )
             arr = jnp.array(arr, dtype=dtype) #Reducing memory
             names_and_data.append((f, arr))
+            i += 1
         
     return names_and_data
 
 
 if __name__ == "__main__":
-    eval_clustering()
+    eval_clustering(cap=100)
     
