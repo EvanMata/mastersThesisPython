@@ -89,7 +89,7 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
     return metric_val
 
 
-def get_info(my_gamma, provided_data, n_cs):
+def get_info(my_gamma, provided_data, n_cs, simple_avg=False):
     """
     Same as basic_clustering, but returns my lambdas dict
     
@@ -98,6 +98,7 @@ def get_info(my_gamma, provided_data, n_cs):
         my_gamma (float) : Value of gamma to use for the tunning.
         provided_data (lst) :    A list of tuples of (cluster, data point)
         n_cs (int) :             Number of clusters to fit
+        simple_avg (bool) : Whether to use convex combination or simple averaging.
     Returns: 
     --------
         metric_val (float) : Value of my metric for the given clustering 
@@ -110,7 +111,7 @@ def get_info(my_gamma, provided_data, n_cs):
     images_tup = totuple(data)
     print("Usage Pre Main Call: ", usage())
     metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
-                                                        n_clusters=n_cs)
+                                                        n_clusters=n_cs, simple_avg=simple_avg)
     
     return metric_val, lambdas_dict
 
@@ -136,7 +137,7 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
     """
 
 
-def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
+def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, print_timing=False):
     """
     Clustering given my gamma and params. This is what I want to minimize for 
     a given gamma.
@@ -146,6 +147,7 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
         gamma (float) : Gaussian Affinity Kernel param to test
         images_tup (tuple of tuples of tuples) : Set of images being clustered
         n_clusters (int) : number of clusters to test 
+        simple_avg (bool) : Whether to use convex combination or simple averaging.
     Returns:
     --------
         total_metric_value (float) :  The sum of my metric value across each cluster
@@ -166,17 +168,18 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
     e2 = time.time()
     if print_timing:
         print("Clustering Time: ", e2 - e1)
-    # clusters = clustering_to_cachable_labels(clusters, n_clusters) # If caching doesn't work, don't use this
+    # clusters = clustering_to_cachable_labels(clusters, n_clusters) 
+    # If caching doesn't work, don't use this
     clusters = tuple(clusters)
     e3 = time.time()
     if print_timing:
         print("Making Labels cachable: ", e3 - e2)
     e4 = time.time()
-    total_metric_value, lambdas_dict = calc_clusters_lambdas_cached(clusters, images_tup)
+    total_metric_value, lambdas_dict = calc_clusters_lambdas_cached(clusters, images_tup,
+                                                                    simple_avg)
     e5 = time.time()
     if print_timing:
         print("Performing Convex Minimization: ", e5 - e4)
-    #return total_metric_value, lambdas_dict #Can't return more than a float for minimzation.
     return total_metric_value, lambdas_dict
 
 
@@ -369,7 +372,7 @@ def clustering_to_cachable_labels(clusters, n_clusters):
 
 
 #@lru_cache # Possibly incompatible with jax???
-def calc_clusters_lambdas_cached(clusters, images_tup):
+def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
     """
     Performs the convex combo minimization to find the convex combo params 
     and total metric value for a given clustering.
@@ -397,11 +400,76 @@ def calc_clusters_lambdas_cached(clusters, images_tup):
     for cluster_label in all_cluster_labels:
         relevant_image_indices = jnp.array([i for i, x in enumerate(clusters) \
                                             if x == cluster_label])
-        total_metric_value, lambdas_and_indices = minimization_metric_and_lambdas( \
+        if simple_avg:
+            total_metric_value, lambdas_and_indices = min_simp_avg_metric_and_lambdas( \
+                                    total_metric_value, relevant_image_indices, images)
+        else:
+            total_metric_value, lambdas_and_indices = minimization_metric_and_lambdas( \
                                     total_metric_value, cluster_label, \
                                     relevant_image_indices, images)
         lambdas_dict[cluster_label] = lambdas_and_indices
     return total_metric_value, lambdas_dict
+
+
+def simple_avg_metric(relevant_images, metric=DEFAULT_METRIC):
+    """
+    Calculates my metric and lambdas if I'm only simple averaging my images. Eg
+    lambdas are uniformly 1/len(relevant imgs)
+
+    Inputs:
+    --------
+        relevant_images (jnp array) : Array of images within a cluster 
+                                      which we're simple averaging.
+        metric (func) : Used in eval_criterion to calculate a score for 
+                        the convex combination created in eval_criterion.
+
+    Returns:
+    --------
+        mini_d (dict) : dict of lambda's that are optimized and my objective
+                        function value
+    """
+    mini_d = dict()
+    # Set Lambdas as uniform.
+    lambdas = jnp.array( len(relevant_images), 1/len(relevant_images) )
+    mini_d['x'] = lambdas
+    combo = jnp.array([lambdas[i]*relevant_images[i] for i in range(len(lambdas))])
+    comboImg = jnp.sum(combo, axis=0)    
+    metric_value = metric(comboImg)
+    mini_d['fun'] = metric_value
+    return mini_d
+    
+
+@jax.jit
+def min_simp_avg_metric_and_lambdas(total_metric_value, relevant_image_indices, images):
+    # Same as minimization_metric_and_lambdas but prevents if in jit'd func
+    """
+    Calculates my metric value accross the entire clustering 
+    (for the given clustering / affinity alpha value)
+
+    Inputs:
+    --------
+        total_metric_value (float) : metric value evaluated on the previous cluster(s)
+        cluster_label_to_eval (int) : the label of the cluster to be evaluated
+        relevant_image_indices (jax arr) : array of the indices of images in the given clus
+        images (jnp arr) : Data, array of arrays where an img is a n x n array
+
+    Returns:
+    --------
+        total_metric_value (float) : the input total metric value with the 
+            current cluster's metric value added on w. the relevant weighting frac 
+            of the total number of pts
+        lambdas_and_indices (list) : List of (item lambda, item index)
+        temp_lambdas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
+    """
+    temp_lambdas_dict = dict()
+    relevant_images = jnp.array(images)[jnp.array(relevant_image_indices)]
+    simpleCombo = simple_avg_metric(relevant_images)
+    min_metric_value = simpleCombo['fun']
+    clus_lambdas = simpleCombo['x']
+    frac = len(relevant_images) / len(images)
+    total_metric_value += min_metric_value*frac
+    lambdas_and_indices = list(zip(clus_lambdas, relevant_image_indices))
+    return total_metric_value, lambdas_and_indices
 
 
 @partial(jax.jit, static_argnames=['eval_criterion', 'solver'])
