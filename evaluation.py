@@ -1,6 +1,8 @@
 
 
 import os
+import time
+import pickle
 import psutil
 
 import pandas as pd
@@ -63,8 +65,8 @@ def load_true(data_name="my_data.pkl", cap=10000):
 
 def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs=16, cap=10000):
     '''
-    Some images were transitioning between two states. Find 
-    the indices where start and end were the same.
+    Finds the indices of frames where I'm in a state, close to a state, or transitioning 
+    between states. Also, get a list of the expected end states.
     
     Inputs:
     --------
@@ -76,6 +78,17 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
                           after a leaving a state
         n_orbs (int) : Number of orbs in the correct clustering
         cap (int) : How many datapoints to use
+
+    Returns:
+    --------
+        good_indices (list) : indices of frames where start state = end state, eg where 
+                              the image was fully in the state
+        close_indices (list) : indices of frames/images where either the orbs were recently
+                                in a state, or more than thresh % of orbs had made it to the
+                                subsequent state
+        transitory_indices (list) : indices of frames/images in niether good nor close indicies, 
+                                    eg indices where frames were transitioning between states
+        end_states (list) : List of states where item i is what state frame i was heading towards
     '''
     
     df = pd.read_pickle("my_data.pkl")
@@ -121,8 +134,17 @@ def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True,
     """
     names_and_data = load_data(data_arr_path, cap=cap)
     metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs)
+
+    lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
+    met_name = "metric_gamma_%f.pickle"%my_gamma
+    with open(lmd_name, 'wb') as handle:
+        pickle.dump(lambdas_dict, handle)
+
+    with open(met_name, 'wb') as handle:
+        pickle.dump(metric_val, handle)
+
     calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
-    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices()
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
     
     t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
     c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
@@ -171,5 +193,9 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000):
 
 
 if __name__ == "__main__":
-    eval_clustering(cap=2000)
+    s = time.time()
+    cap=10000
+    eval_clustering(cap=cap)
+    e = time.time()
+    print("Time taken for cap = %d: "%cap, e - s)
     
