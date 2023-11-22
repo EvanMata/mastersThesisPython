@@ -213,7 +213,7 @@ def calcPairAffinity2(ind1, ind2, imgs, gamma):
 def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
-                      batch_size=5000):
+                      batch_size=5000, print_progress=True):
     """
     Creates my affininty matrix, v-mapped.
 
@@ -245,13 +245,28 @@ def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
     if num_combos % batch_size != 0:
         n_batches += 1 #Round up
     
+    time_taken = 0
     for i in range(n_batches):
+        s = time.time()
         top = min([num_combos, (i+1)*batch_size])
         batch_inds = jnp.arange(i*batch_size, top)
         batch_inds_1, batch_inds_2 = jnp.array(inds_1)[batch_inds], jnp.array(inds_2)[batch_inds]
         affinities = v_cPA(jnp.array(batch_inds_1), jnp.array(batch_inds_2), arr_of_imgs, gamma)
         affinities = list(affinities)
         all_affinities.extend(affinities)
+        e = time.time()
+        if print_progress:
+            batch_time_taken = e - s
+            time_taken += batch_time_taken
+            avg_batch_len = time_taken / (i+1)
+            expected_duration = avg_batch_len*(n_batches + 1)
+            print(batch_time_taken)
+            print("Finished batch %d of %d"%(i, n_batches))
+            print("Time taken for 1 batch of size %d: "%batch_size)
+            print("Estimated Total Time: %f"%expected_duration)
+            print("Estimated Remaining Time: %f"%(expected_duration - time_taken))
+        
+        
     
     all_affinities = jnp.array(all_affinities)
     all_affinities = all_affinities.reshape(-1)
