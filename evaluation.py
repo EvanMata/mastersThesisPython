@@ -1,8 +1,10 @@
 
 
 import os
+import psutil
 
 import pandas as pd
+import numpy as np
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -108,19 +110,19 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
     transitory_indices = set(df['j'].tolist()) - set(close_indices).union(set(good_indices))
     transitory_indices = sorted(list(transitory_indices))
     
-    return good_indices, close_indices, transitory_indices
+    return good_indices, close_indices, transitory_indices, end_states
 
 
-def eval_clustering(my_gamma = 0.2, n_cs = 17, cap=10000, print_it=True, data_arr_path=my_vars.rawArraysF):
+def eval_clustering(my_gamma = 0.2, n_cs = 17, cap=10000, print_it=True, 
+                    data_arr_path=my_vars.rawArraysF):
     """
     Calculates how many of the images were classified into the correct frames
     and some statistics on the lambdas of of my various groupings
     """
-    true_clusters = load_true(cap=cap)
     names_and_data = load_data(data_arr_path, cap=cap)
     metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs)
     calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
-    good_indices, approx_indices, transitory_indices = find_useful_indices()
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices()
     
     t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
     c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
@@ -150,7 +152,7 @@ def eval_clustering(my_gamma = 0.2, n_cs = 17, cap=10000, print_it=True, data_ar
     return 
 
 
-def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=5000):
+def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
     """
@@ -169,5 +171,5 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=5000):
 
 
 if __name__ == "__main__":
-    eval_clustering(cap=5000)
+    eval_clustering(cap=2000)
     

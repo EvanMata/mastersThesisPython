@@ -1,6 +1,9 @@
+
+import os 
 import jax
 import time
 import pickle
+import psutil
 
 import numpy as np
 import jax.numpy as jnp
@@ -105,6 +108,7 @@ def get_info(my_gamma, provided_data, n_cs):
 
     data = jnp.array(data)
     images_tup = totuple(data)
+    print("Usage Pre Main Call: ", usage())
     metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
                                                         n_clusters=n_cs)
     
@@ -150,6 +154,8 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
                                 Where img_i is in the given cluster
     """
     images = jnp.array(images_tup)
+    print("Bytes Size of Images: ", images.nbytes)
+    print("Size of Images: ", images.size)
     gamma = jnp.array([gamma])
     s1 = time.time()
     affinities = affinity_matrix(images, gamma)
@@ -182,13 +188,59 @@ def totuple(m):
         return tuple(map(totuple, m))
 
 
-def calcPairAffinity(image1, image2, gamma):
+def calcPairAffinity(image1, image2, gamma): #Shouldn't I jit this? Or did that cause issues w. gamma?
     #Returns a jnp array of 1 float, jnp.sum adds all elements together
     diff = jnp.sum(jnp.abs(image1 - image2))  
     normed_diff = diff / image1.size
     val = jnp.exp(-gamma*normed_diff)
     val = val.astype(jnp.float16)
     return val
+
+
+def calcPairAffinity2(ind1, ind2, imgs, gamma):
+    #Returns a jnp array of 1 float, jnp.sum adds all elements together
+    image1, image2 = imgs[ind1], imgs[ind2]
+    diff = jnp.sum(jnp.abs(image1 - image2))  
+    normed_diff = diff / image1.size
+    val = jnp.exp(-gamma*normed_diff)
+    val = val.astype(jnp.float16)
+    return val
+
+
+def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
+                      pair_affinity_func=calcPairAffinity2, 
+                      pair_affinity_parallel_axes=(0, 0, None, None)):
+    """
+    Creates my affininty matrix, v-mapped.
+
+    Inputs:
+    --------
+        arr_of_imgs (3d lst of jnp array) : lst of imgs (a x b jnp arrays)
+        gamma (1d jnp array) : parameterizing the pair_affinity_func
+        pair_affinity_func (func) : function which takes in 2 images, gamma, 
+            and outputs the affinity between the two images
+        pair_affinity_parallel_axes (tup) : see vmap for more info, the input axes 
+            which are being parallelized over. 
+
+    Returns: 
+    --------
+        arr (jnp array) : Array of pair affinities, item i,j is the affinity 
+                          between imgs i and j
+    """
+    arr_of_imgs = jnp.array(arr_of_imgs)
+    n_imgs = len(arr_of_imgs)
+    arr_of_indices = jnp.arange(n_imgs)
+    
+    arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
+    inds_1, inds_2 = zip(*combinations(arr_of_indices,2))
+    
+    v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
+    affinities = v_cPA(jnp.array(inds_1), jnp.array(inds_2), arr_of_imgs, gamma)
+    affinities = affinities.reshape(-1)
+    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
+    arr = arr + arr.T
+    arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
+    return arr
 
 
 def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
@@ -214,9 +266,14 @@ def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
+    print("Bytes Size of Base Array: ", arr.nbytes)
     v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
-    imgs_1, imgs_2 = zip(*list(combinations(arr_of_imgs,2)))
-    affinities = v_cPA(jnp.array(imgs_1), jnp.array(imgs_2), gamma)
+    imgs_1, imgs_2 = zip(*combinations(arr_of_imgs,2))
+    print("Bytes Size of Imgs1 Array: ", jnp.array(imgs_1).nbytes)
+    print("Size of Imgs1 Array: ", jnp.array(imgs_1).size)
+    print("Usage Pre Affinity Matrix Fill In: ", usage())
+    affinities = v_cPA(imgs_1, imgs_2, gamma)
+    #affinities = v_cPA(jnp.array(imgs_1), jnp.array(imgs_2), gamma)
     affinities = affinities.reshape(-1)
     arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
     arr = arr + arr.T
@@ -410,6 +467,13 @@ def convexMinimization(params, eval_criterion=convComb1Clust,
     return mini_d
 
 
+###############
+# Helper Func #
+###############
+
+def usage():
+    process = psutil.Process(os.getpid())
+    return process.memory_info()[0] / float(2 ** 20)
 
 
 if __name__ == "__main__":
