@@ -213,7 +213,7 @@ def calcPairAffinity2(ind1, ind2, imgs, gamma):
 def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
-                      batch_size=100):
+                      batch_size=5000):
     """
     Creates my affininty matrix, v-mapped.
 
