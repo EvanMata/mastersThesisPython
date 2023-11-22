@@ -445,6 +445,41 @@ def t_pdist_ok():
         print(nxt)
 
 
+def affininty_matrix_ex(n_arrays=10, img_size=5, key=jax.random.PRNGKey(0), gamma=jnp.array([0.5])):
+    arr_of_imgs = jax.random.normal(jax.random.PRNGKey(0), (n_arrays, img_size, img_size))
+    arr_of_indices = jnp.arange(n_arrays)
+    inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
+    v_cPA = jax.vmap(calcPairAffinity2, (0, 0, None, None), 0)
+    affinities = v_cPA(jnp.array(inds_1), jnp.array(inds_2), arr_of_imgs, gamma)
+    print()
+    print(jax.make_jaxpr(v_cPA)(jnp.array(inds_1), jnp.array(inds_2), arr_of_imgs, gamma))
+    
+    affinities = affinities.reshape(-1)
+    
+    arr = jnp.zeros((n_arrays, n_arrays), dtype=jnp.float16)
+    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
+    arr = arr + arr.T
+    arr = arr + jnp.identity(n_arrays, dtype=jnp.float16)
+    
+    return arr
+
+
+def calcPairAffinity2(ind1, ind2, imgs, gamma):
+    #Returns a jnp array of 1 float, jnp.sum adds all elements together
+    image1, image2 = imgs[ind1], imgs[ind2]
+    diff = jnp.sum(jnp.abs(image1 - image2))  
+    normed_diff = diff / image1.size
+    val = jnp.exp(-gamma*normed_diff)
+    val = val.astype(jnp.float16)
+    return val
+
+
+
+
+
+
+
+
 if __name__ == "__main__":
     #t_dPC_5()
     #t_dTV_1()
@@ -452,7 +487,7 @@ if __name__ == "__main__":
     #visualize_fft()
     #print(clustering_to_cachable_labels([0,0,1,1]))
     #print(clustering_to_cachable_labels([1,1,0,0]))
-    t6_clustering_caches()
+    #t6_clustering_caches()
     #t_reverse_str(arr=gen_random_uni_arr(my_shape=(15,15,3)))
     #arr_of_imgs = jnp.array([[[1,0],[0,1]], [[0,2],[-1,0]], [[3,1],[1,3]], [[3,1],[1,3]], [[1,0],[0,1]]])
     #t_vmaped_mat_construction(arr_of_imgs, gamma=0.5)
@@ -465,3 +500,9 @@ if __name__ == "__main__":
     #comp_vmap_4()
     #t_vmap_region()
     #t_pdist_ok()
+    n_arrays=10
+    img_size=5
+    key=jax.random.PRNGKey(0)
+    data=jax.random.normal(key, (n_arrays, img_size, img_size))
+    print(affininty_matrix_ex(n_arrays=10000, img_size=100))
+    #check_aff()

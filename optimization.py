@@ -158,7 +158,7 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, print_timing=False):
     print("Size of Images: ", images.size)
     gamma = jnp.array([gamma])
     s1 = time.time()
-    affinities = affinity_matrix(images, gamma)
+    affinities = affinity_matrix2(images, gamma)
     e1 = time.time()
     if print_timing:
         print("Affinity Time: ", e1 - s1)
@@ -209,7 +209,8 @@ def calcPairAffinity2(ind1, ind2, imgs, gamma):
 
 def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
                       pair_affinity_func=calcPairAffinity2, 
-                      pair_affinity_parallel_axes=(0, 0, None, None)):
+                      pair_affinity_parallel_axes=(0, 0, None, None),
+                      batch_size=100):
     """
     Creates my affininty matrix, v-mapped.
 
@@ -232,14 +233,31 @@ def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
     arr_of_indices = jnp.arange(n_imgs)
     
     arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
-    inds_1, inds_2 = zip(*combinations(arr_of_indices,2))
-    
+    inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
     v_cPA = jax.vmap(pair_affinity_func, pair_affinity_parallel_axes, 0)
-    affinities = v_cPA(jnp.array(inds_1), jnp.array(inds_2), arr_of_imgs, gamma)
-    affinities = affinities.reshape(-1)
-    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(affinities)
+    
+    all_affinities = []
+    num_combos = len(inds_1)
+    n_batches = int(num_combos / batch_size)
+    if num_combos % batch_size != 0:
+        n_batches += 1 #Round up
+    
+    for i in range(n_batches):
+        top = min([num_combos, (i+1)*batch_size])
+        batch_inds = jnp.arange(i*batch_size, top)
+        batch_inds_1, batch_inds_2 = jnp.array(inds_1)[batch_inds], jnp.array(inds_2)[batch_inds]
+        affinities = v_cPA(jnp.array(batch_inds_1), jnp.array(batch_inds_2), arr_of_imgs, gamma)
+        affinities = list(affinities)
+        all_affinities.extend(affinities)
+    
+    all_affinities = jnp.array(all_affinities)
+    all_affinities = all_affinities.reshape(-1)
+    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(all_affinities)
     arr = arr + arr.T
     arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
+    print()
+    print("VMAP WORKED")
+    print()
     return arr
 
 
