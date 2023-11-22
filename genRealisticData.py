@@ -198,12 +198,6 @@ def gen_all_noise(c_key, array_shape, num, save_folder=my_vars.rawNoiseP, skipTo
                                 cutoff=0.05, r_cutoff=False, cutoff_bds=[0.02, 0.02])
         noise_fname = save_folder%i
         jnp.save(noise_fname, noise)
-
-
-def combine_signal_noise(signal_arr, noise_arr):
-    signal_arr = signal_arr - 0.5
-    out_arr = signal_arr*noise_arr
-    return out_arr
         
 
 def combine_signal_noise(signal_arr, noise_arr):
@@ -1694,5 +1688,5 @@ if __name__ == "__main__":
                     arr_save_folder=my_vars.rawArraysP, 
                     pickup=True)
     """
-    gen_all_noise(c_key=MY_KEY, array_shape=(120,120), num=10000, \
-                  save_folder=my_vars.rawNoiseP, skipTo=300)
+    gen_all_noise(c_key=MY_KEY, array_shape=(120,120), num=10300, \
+                  save_folder=my_vars.rawNoiseP, skipTo=9999)

@@ -127,13 +127,14 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
 
 
 def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True, 
+                    with_noise=True, simple_avg=False, 
                     data_arr_path=my_vars.rawArraysF):
     """
     Calculates how many of the images were classified into the correct frames
     and some statistics on the lambdas of of my various groupings
     """
-    names_and_data = load_data(data_arr_path, cap=cap)
-    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs)
+    names_and_data = load_data(data_arr_path, cap=cap, with_noise=with_noise)
+    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg=simple_avg)
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
     met_name = "metric_gamma_%f.pickle"%my_gamma
@@ -174,28 +175,46 @@ def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True,
     return 
 
 
-def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000):
+def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
+              with_noise=False, noise_path=my_vars.rawNoiseF):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
     """
     names_and_data = []
-    my_files = os.listdir(data_arr_path)
+    my_arrs = os.listdir(data_arr_path)
+    if with_noise:
+        my_noises = os.listdir(noise_path)
     i = 0
-    for f in my_files:
+    for j in range(len(my_arrs)):
+        f = my_arrs[j]
         if str(f)[-4:] == ".npy" and i < cap:
             full_f = data_arr_path.joinpath( f )
             arr = jnp.load( full_f )
             arr = jnp.array(arr, dtype=dtype) #Reducing memory
+            if with_noise:
+                n = my_noises[j]
+                full_n = noise_path.joinpath( n )
+                noise_arr = jnp.load( full_n )
+                noise_arr = jnp.array(noise_arr, dtype=dtype)
+                arr = combine_signal_noise(arr, noise_arr)
+
             names_and_data.append((f, arr))
             i += 1
         
     return names_and_data
 
 
+def combine_signal_noise(signal_arr, noise_arr):
+    signal_arr = signal_arr - 0.5
+    composite_arr = signal_arr*noise_arr
+    composite_arr = composite_arr + 0.5 #Back to [0,1] in theory
+    return composite_arr
+
+
 if __name__ == "__main__":
     s = time.time()
     cap=10000
-    eval_clustering(cap=cap)
+    eval_clustering(cap=cap, simple_avg=True, with_noise=True)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)
     

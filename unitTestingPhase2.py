@@ -4,6 +4,7 @@ import jax
 
 import numpy as np
 import jax.numpy as jnp
+import evaluation as evalu
 import optimization as clu
 import openRawData as opn
 #import construct_real_space as con
@@ -474,9 +475,16 @@ def calcPairAffinity2(ind1, ind2, imgs, gamma):
     return val
 
 
-
-
-
+def t_noise_combine():
+    n = 4
+    names_and_data = evalu.load_data(cap=n, with_noise=True)
+    names, data = zip(*names_and_data)
+    fig, axs = plt.subplots(2,2)
+    axs[0, 0].imshow(data[0], cmap='hot', interpolation='nearest')
+    axs[0, 1].imshow(data[1], cmap='hot', interpolation='nearest')
+    axs[1, 0].imshow(data[2], cmap='hot', interpolation='nearest')
+    axs[1, 1].imshow(data[3], cmap='hot', interpolation='nearest')
+    plt.show()
 
 
 
@@ -500,9 +508,12 @@ if __name__ == "__main__":
     #comp_vmap_4()
     #t_vmap_region()
     #t_pdist_ok()
+    """
     n_arrays=10
     img_size=5
     key=jax.random.PRNGKey(0)
     data=jax.random.normal(key, (n_arrays, img_size, img_size))
     print(affininty_matrix_ex(n_arrays=10000, img_size=100))
+    """
     #check_aff()
+    t_noise_combine()

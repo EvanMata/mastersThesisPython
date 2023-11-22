@@ -132,9 +132,6 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
     print("Optimal Alpha Value was: ", gamma_value)
     total_time = e - s
     print("Total Time: ", total_time)
-    """
-    EDIT TO MAKE SURE USES ALPHA TO GET BEST.
-    """
 
 
 def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, print_timing=False):
