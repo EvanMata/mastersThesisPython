@@ -197,6 +197,8 @@ def calcPairAffinity(image1, image2, gamma): #Shouldn't I jit this? Or did that 
     return val
 
 
+#@partial(jax.jit, static_argnames=['gamma'])
+@jax.jit
 def calcPairAffinity2(ind1, ind2, imgs, gamma):
     #Returns a jnp array of 1 float, jnp.sum adds all elements together
     image1, image2 = imgs[ind1], imgs[ind2]
@@ -252,6 +254,10 @@ def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
         affinities = list(affinities)
         all_affinities.extend(affinities)
         e = time.time()
+        # Chunk Affinities, and keep track of what chunk you were on.
+        affinity_save_name = "Affinity_%f.pickle"%gamma
+        with open(affinity_save_name, 'wb') as handle:
+            pickle.dump((i, all_affinities), handle)
         if print_progress:
             batch_time_taken = e - s
             time_taken += batch_time_taken

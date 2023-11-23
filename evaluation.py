@@ -213,7 +213,7 @@ def combine_signal_noise(signal_arr, noise_arr):
 
 if __name__ == "__main__":
     s = time.time()
-    cap=10000
+    cap=50
     eval_clustering(cap=cap, simple_avg=True, with_noise=True)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)

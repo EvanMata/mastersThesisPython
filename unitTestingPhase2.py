@@ -487,6 +487,16 @@ def t_noise_combine():
     plt.show()
 
 
+def t_jited_pair_aff():
+    n = 5
+    imgs = jax.random.normal(jax.random.PRNGKey(0), (n,3,3))
+    gamma = jnp.array([0.5])
+    arr_of_indices = jnp.arange(n)
+    inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
+    ind1, ind2 = inds_1[0], inds_2[0]
+    t = clu.calcPairAffinity2(ind1, ind2, imgs, gamma)
+    print(t)
+
 
 if __name__ == "__main__":
     #t_dPC_5()
@@ -516,4 +526,5 @@ if __name__ == "__main__":
     print(affininty_matrix_ex(n_arrays=10000, img_size=100))
     """
     #check_aff()
-    t_noise_combine()
+    #t_noise_combine()
+    t_jited_pair_aff()
