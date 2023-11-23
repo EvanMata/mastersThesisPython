@@ -49,7 +49,7 @@ def convComb1Clust(convexComboParams, realSpaceImgs, metric=DEFAULT_METRIC):
 
 
 def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS", 
-             provided_data=None, premade_affinity_matrix=None):
+             provided_data=None, simple_avg=False, premade_affinity_matrix=None):
     """
     Triest to run a basic clustering example on synthetic data.
 
@@ -62,6 +62,8 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
         arraysPerCluster (int) : Number of fake data pts to generate in each cluster
         solver (str) :           What solver to use (only one works in jax at the moment - BFGS)
         provided_data (lst) :    A list of tuples of (cluster, data point)
+        simple_avg (bool) : Whether to use convex combination or simple averaging.
+        premade_affinity_matrix (jnp array|None) : If not none, a precomputed affinity matrix.
     Returns: 
     --------
         metric_val (float) : Value of my metric for the given clustering 
@@ -78,7 +80,8 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
     data = jnp.array(data)
     images_tup = totuple(data)
     metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
-                                                        n_clusters=n_cs)
+                                                        n_clusters=n_cs, simple_avg=simple_avg,
+                                                        premade_affinity_matrix=premade_affinity_matrix)
     
     print("Gamma: ", my_gamma)
     print("Metric Value: ", metric_val)
@@ -89,7 +92,7 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
     return metric_val
 
 
-def get_info(my_gamma, provided_data, n_cs, simple_avg=False):
+def get_info(my_gamma, provided_data, n_cs, simple_avg=False, premade_affinity_matrix=None):
     """
     Same as basic_clustering, but returns my lambdas dict
     
@@ -99,6 +102,7 @@ def get_info(my_gamma, provided_data, n_cs, simple_avg=False):
         provided_data (lst) :    A list of tuples of (cluster, data point)
         n_cs (int) :             Number of clusters to fit
         simple_avg (bool) : Whether to use convex combination or simple averaging.
+        premade_affinity_matrix (jnp array|None) : If not none, a precomputed affinity matrix.
     Returns: 
     --------
         metric_val (float) : Value of my metric for the given clustering 
@@ -108,12 +112,12 @@ def get_info(my_gamma, provided_data, n_cs, simple_avg=False):
     data = [i[1] for i in provided_data]
 
     data = jnp.array(data)
-    # images_tup = totuple(data) # Takes a while
+    # images_tup = totuple(data) # Takes a while, no longer cachine so irrelevant
     print("Usage Pre Main Call: ", usage())
-    #metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
-    #                                                    n_clusters=n_cs, simple_avg=simple_avg)
+    ## EDIT ## ADJUST TO KWARGS OR ARGS
     metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=data, 
-                                                        n_clusters=n_cs, simple_avg=simple_avg)
+                                                        n_clusters=n_cs, simple_avg=simple_avg,
+                                                        premade_affinity_matrix=premade_affinity_matrix)
     
     return metric_val, lambdas_dict
 
@@ -314,6 +318,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
                           between imgs i and j
     """
     digit3_gamma = '{0:.3f}'.format(float(gamma))
+    digit3_gamma = digit3_gamma.replace('.', "_")
     affinity_mat_save_name = str(save_folder.joinpath(\
                                 "Affinity_Matrix_gamma_%s.pickle"%digit3_gamma))
     arr_of_imgs = jnp.array(arr_of_imgs)
@@ -324,28 +329,36 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
     inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
 
     n_combos = len(inds_1)
+    all_affinities = []
+
     if pickup:
         to_do = range(pickup_loc, n_combos)
+        past_batches = jnp.array(list(range(0, pickup_loc, batch_size))) + batch_size - 1
+        past_batches = past_batches.tolist()
+        for past_b in past_batches:
+            affinities_load_name = str(save_folder.joinpath( \
+                "Affinity_batch_%d_gamma_%s"%(past_b, digit3_gamma)))
+            batch = jnp.load(affinities_load_name)
+            batch = batch.tolist()
+            all_affinities.extend(batch)
         
     else:
-        to_do = range(n_combos)
-        all_affinities = []
+        to_do = range(n_combos) 
 
+    last_batch = []
     for i in to_do:
-        if i % batch_size == 0:
-            last_batch = []
-            print("On Affinity pair %d of %d"%(i, n_combos))
         ind1, ind2 = inds_1[i], inds_2[i]
         aff = calcPairAffinity2(ind1, ind2, arr_of_imgs, gamma)
         all_affinities.append(aff)
         last_batch.append(aff)
-        affinities_save_name = str(save_folder.joinpath( \
-                                "Affinity_batch_%d_gamma_%s.pickle"%(i - batch_size, digit3_gamma)))
-        jnp.save(affinities_save_name, jnp.array(last_batch))
-
-    # Takes a while to save
-    # with open(affinities_save_name, 'wb') as handle:
-    #   pickle.dump((i, all_affinities), handle)
+        
+        if i % batch_size == batch_size - 1:
+            last_b_arr = jnp.array(last_batch)
+            affinities_save_name = str(save_folder.joinpath( \
+                                    "Affinity_batch_%d_gamma_%s"%(i, digit3_gamma)))
+            jnp.save(affinities_save_name, last_b_arr)
+            last_batch = []
+            print("On Affinity pair %d of %d"%(i, n_combos))
     
     all_affinities = jnp.array(all_affinities)
 

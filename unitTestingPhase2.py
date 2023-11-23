@@ -497,17 +497,24 @@ def t_jited_pair_aff(n_trials=5000):
     ind1, ind2 = inds_1[0], inds_2[0]
     t = clu.calcPairAffinity2(ind1, ind2, imgs, gamma)
     times = []
+    vs = []
     st = time.time_ns()
     for i in range(n_trials):
         s = time.time_ns()
         ind1, ind2 = inds_1[i], inds_2[i]
-        t = clu.calcPairAffinity2(ind1, ind2, imgs, gamma)
+        v = clu.calcPairAffinity2(ind1, ind2, imgs, gamma)
+        vs.append(v)
         e = time.time_ns()
         times.append(((e-s)/10**9))
     et = time.time_ns()
+    vs = jnp.array(vs)
     print("Tot Time for affs: ", ((et-st)/10**9))
     print("Avg time for aff: ", jnp.mean(jnp.array(times)))
-    print(t)
+    print(vs)
+    s = time.time()
+    jnp.save("DELETE_ME", vs)
+    e = time.time()
+    print("Time to SAVE: ", e-s)
 
 
 if __name__ == "__main__":
