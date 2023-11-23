@@ -56,14 +56,8 @@ def format_nice(lambdas_dict):
     return clustering, calc_lambdas, cluster_pts, cluster_lambdas
 
 
-def load_true(data_name="my_data.pkl", cap=10000):
-    #Loads the technically correct clusters
-    df = pd.read_pickle("my_data.pkl")
-    true_clusters = list(df['end state'])[:cap]
-    return true_clusters
-
-
-def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs=16, cap=10000):
+def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs=16, cap=10000,
+                        load_folder=my_vars.picklesDataPath):
     '''
     Finds the indices of frames where I'm in a state, close to a state, or transitioning 
     between states. Also, get a list of the expected end states.
@@ -91,7 +85,9 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
         end_states (list) : List of states where item i is what state frame i was heading towards
     '''
     
-    df = pd.read_pickle("my_data.pkl")
+    data_path = str(load_folder.joinpath("my_data.pkl"))
+
+    df = pd.read_pickle(data_path)
     df = df.head(cap)
     end_states = list(df['end state'])
     start_states = list(df['start state'])
@@ -128,7 +124,8 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
 
 def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True, 
                     with_noise=True, simple_avg=False, 
-                    data_arr_path=my_vars.rawArraysF):
+                    data_arr_path=my_vars.rawArraysF,
+                    save_folder=my_vars.picklesDataPath):
     """
     Calculates how many of the images were classified into the correct frames
     and some statistics on the lambdas of of my various groupings
@@ -141,6 +138,10 @@ def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True,
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
     met_name = "metric_gamma_%f.pickle"%my_gamma
+
+    lmd_name = str(save_folder.joinpath(lmd_name))
+    met_name = str(save_folder.joinpath(met_name))
+
     with open(lmd_name, 'wb') as handle:
         pickle.dump(lambdas_dict, handle)
 

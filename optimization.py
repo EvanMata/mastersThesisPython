@@ -287,7 +287,9 @@ def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
 def affinity_matrix3(arr_of_imgs, gamma=jnp.array([0.5]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
-                      batch_size=5000, print_progress=True):
+                      batch_size=5000, print_progress=True, 
+                      pickup=False, pickup_loc=0, 
+                      save_folder=var_names.picklesDataPath):
     """
     Creates my affininty matrix, v-mapped.
 
@@ -305,6 +307,10 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([0.5]), \
         arr (jnp array) : Array of pair affinities, item i,j is the affinity 
                           between imgs i and j
     """
+    affinities_save_name = str(save_folder.joinpath( \
+                                "Affinity_gamma_%f.pickle"%gamma))
+    affinity_mat_save_name = str(save_folder.joinpath(\
+                                "Affinity_Matrix_gamma_%f.pickle"%gamma))
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     arr_of_indices = jnp.arange(n_imgs)
@@ -312,17 +318,24 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([0.5]), \
     arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
     inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
 
-    all_affinities = []
     n_combos = len(inds_1)
-    for i in range(n_combos):
+    if pickup:
+        to_do = range(pickup_loc, n_combos)
+        
+        with open(affinities_save_name, 'rb') as f:
+            all_affinities = pickle.load(f)
+    else:
+        to_do = range(n_combos)
+        all_affinities = []
+
+    for i in to_do:
         if i % batch_size == 0:
             print("On Affinity pair %d of %d"%(i, n_combos))
         ind1, ind2 = inds_1[i], inds_2[i]
         aff = calcPairAffinity2(ind1, ind2, arr_of_imgs, gamma)
         all_affinities.append(aff)
 
-    affinity_save_name = "Affinity_gamma_%f.pickle"%gamma
-    with open(affinity_save_name, 'wb') as handle:
+    with open(affinities_save_name, 'wb') as handle:
         pickle.dump((i, all_affinities), handle)
     
     all_affinities = jnp.array(all_affinities)
@@ -330,6 +343,8 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([0.5]), \
     arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(all_affinities)
     arr = arr + arr.T
     arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
+    with open(affinity_mat_save_name, 'wb') as handle:
+        pickle.dump(arr, handle)
     print()
     print("VMAP WORKED")
     print()
