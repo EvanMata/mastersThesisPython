@@ -133,7 +133,10 @@ def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True,
     Calculates how many of the images were classified into the correct frames
     and some statistics on the lambdas of of my various groupings
     """
+    s = time.time()
     names_and_data = load_data(data_arr_path, cap=cap, with_noise=with_noise)
+    e = time.time()
+    print("Took %d seconds to load %d data pts"%((e-s), cap))
     metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg=simple_avg)
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
@@ -167,9 +170,9 @@ def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True,
         print("Approx Eval: ")
         print(approx_score)
         print()
-        print("Exacts mean %f and stv %d of lambdas"%(l_g_mean, l_g_std))
-        print("Approx mean %f and stv %d of lambdas"%(l_a_mean, l_a_std))
-        print("Transitory mean %f and stv %d of lambdas"%(l_t_mean, l_t_std))
+        print("Exacts mean %f and stv %f of lambdas"%(l_g_mean, l_g_std))
+        print("Approx mean %f and stv %f of lambdas"%(l_a_mean, l_a_std))
+        print("Transitory mean %f and stv %f of lambdas"%(l_t_mean, l_t_std))
         print()
     
     return 
@@ -213,7 +216,7 @@ def combine_signal_noise(signal_arr, noise_arr):
 
 if __name__ == "__main__":
     s = time.time()
-    cap=50
+    cap=10000
     eval_clustering(cap=cap, simple_avg=True, with_noise=True)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)

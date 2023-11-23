@@ -108,9 +108,11 @@ def get_info(my_gamma, provided_data, n_cs, simple_avg=False):
     data = [i[1] for i in provided_data]
 
     data = jnp.array(data)
-    images_tup = totuple(data)
+    # images_tup = totuple(data) # Takes a while
     print("Usage Pre Main Call: ", usage())
-    metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
+    #metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=images_tup, 
+    #                                                    n_clusters=n_cs, simple_avg=simple_avg)
+    metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=data, 
                                                         n_clusters=n_cs, simple_avg=simple_avg)
     
     return metric_val, lambdas_dict
@@ -157,7 +159,7 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, prin
     print("Size of Images: ", images.size)
     gamma = jnp.array([gamma])
     s1 = time.time()
-    affinities = affinity_matrix2(images, gamma)
+    affinities = affinity_matrix3(images, gamma)
     e1 = time.time()
     if print_timing:
         print("Affinity Time: ", e1 - s1)
@@ -218,7 +220,7 @@ def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
 
     Inputs:
     --------
-        arr_of_imgs (3d lst of jnp array) : lst of imgs (a x b jnp arrays)
+        arr_of_imgs (3d jnp array of 2d tuples) : jnp arr of imgs (a x b tuples)
         gamma (1d jnp array) : parameterizing the pair_affinity_func
         pair_affinity_func (func) : function which takes in 2 images, gamma, 
             and outputs the affinity between the two images
@@ -264,12 +266,64 @@ def affinity_matrix2(arr_of_imgs, gamma=jnp.array([0.5]), \
             avg_batch_len = time_taken / (i+1)
             expected_duration = avg_batch_len*(n_batches + 1)
             print(batch_time_taken)
-            print("Finished batch %d of %d"%(i, n_batches))
-            print("Time taken for 1 batch of size %d: "%batch_size)
+            print("Finished batch %d of %d"%(i+1, n_batches))
+            print("Time taken for 1 batch of size %d: %d"%(batch_size, batch_time_taken))
             print("Estimated Total Time: %f"%expected_duration)
             print("Estimated Remaining Time: %f"%(expected_duration - time_taken))
         
         
+    
+    all_affinities = jnp.array(all_affinities)
+    all_affinities = all_affinities.reshape(-1)
+    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(all_affinities)
+    arr = arr + arr.T
+    arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
+    print()
+    print("VMAP WORKED")
+    print()
+    return arr
+
+
+def affinity_matrix3(arr_of_imgs, gamma=jnp.array([0.5]), \
+                      pair_affinity_func=calcPairAffinity2, 
+                      pair_affinity_parallel_axes=(0, 0, None, None),
+                      batch_size=5000, print_progress=True):
+    """
+    Creates my affininty matrix, v-mapped.
+
+    Inputs:
+    --------
+        arr_of_imgs (3d jnp array of 2d tuples) : jnp arr of imgs (a x b tuples)
+        gamma (1d jnp array) : parameterizing the pair_affinity_func
+        pair_affinity_func (func) : function which takes in 2 images, gamma, 
+            and outputs the affinity between the two images
+        pair_affinity_parallel_axes (tup) : see vmap for more info, the input axes 
+            which are being parallelized over. 
+
+    Returns: 
+    --------
+        arr (jnp array) : Array of pair affinities, item i,j is the affinity 
+                          between imgs i and j
+    """
+    arr_of_imgs = jnp.array(arr_of_imgs)
+    n_imgs = len(arr_of_imgs)
+    arr_of_indices = jnp.arange(n_imgs)
+    
+    arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
+    inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
+
+    all_affinities = []
+    n_combos = len(inds_1)
+    for i in range(n_combos):
+        if i % batch_size == 0:
+            print("On Affinity pair %d of %d"%(i, n_combos))
+        ind1, ind2 = inds_1[i], inds_2[i]
+        aff = calcPairAffinity2(ind1, ind2, arr_of_imgs, gamma)
+        all_affinities.append(aff)
+
+    affinity_save_name = "Affinity_gamma_%f.pickle"%gamma
+    with open(affinity_save_name, 'wb') as handle:
+        pickle.dump((i, all_affinities), handle)
     
     all_affinities = jnp.array(all_affinities)
     all_affinities = all_affinities.reshape(-1)
@@ -448,7 +502,7 @@ def simple_avg_metric(relevant_images, metric=DEFAULT_METRIC):
     """
     mini_d = dict()
     # Set Lambdas as uniform.
-    lambdas = jnp.array( len(relevant_images), 1/len(relevant_images) )
+    lambdas = jnp.full( len(relevant_images), 1/len(relevant_images) )
     mini_d['x'] = lambdas
     combo = jnp.array([lambdas[i]*relevant_images[i] for i in range(len(lambdas))])
     comboImg = jnp.sum(combo, axis=0)    

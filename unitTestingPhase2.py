@@ -1,6 +1,7 @@
 import os
 import sys
 import jax
+import time
 
 import numpy as np
 import jax.numpy as jnp
@@ -487,14 +488,25 @@ def t_noise_combine():
     plt.show()
 
 
-def t_jited_pair_aff():
-    n = 5
-    imgs = jax.random.normal(jax.random.PRNGKey(0), (n,3,3))
+def t_jited_pair_aff(n_trials=5000):
+    n = n_trials
+    imgs = jax.random.normal(jax.random.PRNGKey(0), (n,120,120))
     gamma = jnp.array([0.5])
     arr_of_indices = jnp.arange(n)
     inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
     ind1, ind2 = inds_1[0], inds_2[0]
     t = clu.calcPairAffinity2(ind1, ind2, imgs, gamma)
+    times = []
+    st = time.time_ns()
+    for i in range(n_trials):
+        s = time.time_ns()
+        ind1, ind2 = inds_1[i], inds_2[i]
+        t = clu.calcPairAffinity2(ind1, ind2, imgs, gamma)
+        e = time.time_ns()
+        times.append(((e-s)/10**9))
+    et = time.time_ns()
+    print("Tot Time for affs: ", ((et-st)/10**9))
+    print("Avg time for aff: ", jnp.mean(jnp.array(times)))
     print(t)
 
 
