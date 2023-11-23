@@ -122,7 +122,7 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
     return good_indices, close_indices, transitory_indices, end_states
 
 
-def eval_clustering(my_gamma = 0.5, n_cs = 17, cap=10000, print_it=True, 
+def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True, 
                     with_noise=True, simple_avg=False, 
                     data_arr_path=my_vars.rawArraysF,
                     save_folder=my_vars.picklesDataPath):
