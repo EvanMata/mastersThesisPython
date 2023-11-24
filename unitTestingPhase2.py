@@ -478,7 +478,19 @@ def calcPairAffinity2(ind1, ind2, imgs, gamma):
 
 def t_noise_combine():
     n = 4
-    names_and_data = evalu.load_data(cap=n, with_noise=True)
+    names_and_data = evalu.load_data(cap=n, with_noise=True, noise_type='Mult')
+    names, data = zip(*names_and_data)
+    fig, axs = plt.subplots(2,2)
+    axs[0, 0].imshow(data[0], cmap='hot', interpolation='nearest')
+    axs[0, 1].imshow(data[1], cmap='hot', interpolation='nearest')
+    axs[1, 0].imshow(data[2], cmap='hot', interpolation='nearest')
+    axs[1, 1].imshow(data[3], cmap='hot', interpolation='nearest')
+    plt.show()
+
+
+def t_noise_combine2():
+    n = 4
+    names_and_data = evalu.load_data(cap=n, with_noise=True, noise_type='Repl')
     names, data = zip(*names_and_data)
     fig, axs = plt.subplots(2,2)
     axs[0, 0].imshow(data[0], cmap='hot', interpolation='nearest')

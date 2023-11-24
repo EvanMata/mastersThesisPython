@@ -113,7 +113,6 @@ def get_info(my_gamma, provided_data, n_cs, simple_avg=False, premade_affinity_m
 
     data = jnp.array(data)
     # images_tup = totuple(data) # Takes a while, no longer cachine so irrelevant
-    print("Usage Pre Main Call: ", usage())
     ## EDIT ## ADJUST TO KWARGS OR ARGS
     metric_val, lambdas_dict = const_gamma_clustering(gamma=my_gamma, images_tup=data, 
                                                         n_clusters=n_cs, simple_avg=simple_avg,
@@ -123,13 +122,14 @@ def get_info(my_gamma, provided_data, n_cs, simple_avg=False, premade_affinity_m
 
 
 def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS",
-                    provided_data=None):
+                    provided_data=None, premade_affinity_matrix=None):
     """
     Tunes the gamma used in my clustering.
     """
     fun = basic_ex
     init_guess = jnp.array([1.0])
-    arguements = (use_new_data, n_cs, arraysPerCluster, my_method, provided_data)
+    arguements = (use_new_data, n_cs, arraysPerCluster, my_method, \
+                  provided_data, premade_affinity_matrix)
     s = time.time()
     minResults = min2(fun=fun, x0 = init_guess,
                             method=my_method, args=arguements)
@@ -142,7 +142,7 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
 
 
 def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, 
-                           premade_affinity_matrix=None, print_timing=False):
+                           premade_affinity_matrix=None, print_timing=True):
     """
     Clustering given my gamma and params. This is what I want to minimize for 
     a given gamma.
@@ -162,11 +162,11 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False,
                                 Where img_i is in the given cluster
     """
     images = jnp.array(images_tup)
-    print("Bytes Size of Images: ", images.nbytes)
-    print("Size of Images: ", images.size)
     gamma = jnp.array([gamma])
     if premade_affinity_matrix is not None:
-        affinities = premade_affinity_matrix*gamma # Original gamma was 1.0, so *gamma/1
+        s1 = time.time()
+        affinities = premade_affinity_matrix**gamma # Original gamma was 1.0, so **gamma/1
+        e1 = time.time()
     else:
         s1 = time.time()
         affinities = affinity_matrix3(images, gamma)
@@ -188,7 +188,7 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False,
                                                                     simple_avg)
     e5 = time.time()
     if print_timing:
-        print("Performing Convex Minimization: ", e5 - e4)
+        print("Performing Convex Minimization and Calc Metric: ", e5 - e4)
     return total_metric_value, lambdas_dict
 
 
@@ -478,6 +478,7 @@ def save_affinity_matrix(batch_size=5000, gamma=jnp.array([1.0]), n_imgs=10000,
     print("Affinity matrix fully constructed")
     jnp.save(affinity_mat_save_name, arr)
     print("Affinity matrix saved")
+
 
 ##############################################################
 # What is an elegant way to make the clusters name invarient #

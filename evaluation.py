@@ -1,6 +1,6 @@
 
-
 import os
+import jax
 import time
 import pickle
 import psutil
@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import optimization as opti
 import pathlib_variable_names as my_vars
 
+from itertools import product
 from collections import defaultdict
 from sklearn.metrics import adjusted_rand_score
 
@@ -132,9 +133,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     """
     s = time.time()
     names_and_data = load_data(data_arr_path, cap=cap, with_noise=with_noise)
+    aff_mat = load_affinity_matrix()
     e = time.time()
-    print("Took %d seconds to load %d data pts"%((e-s), cap))
-    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg=simple_avg)
+    print("Took %d seconds to load %d data pts and affinity matrix"%((e-s), cap))
+    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg, aff_mat)
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
     met_name = "metric_gamma_%f.pickle"%my_gamma
@@ -166,6 +168,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     exact_score = adjusted_rand_score(t_clus_goods, c_clus_goods)
     approx_score = adjusted_rand_score(t_clus_approx, c_clus_approx)
     if print_it:
+        print("GAMMA: ")
+        print(my_gamma)
+        print("METRIC VALUE: ")
+        print(metric_val)
         print("True Eval:")
         print(exact_score)
         print("Approx Eval: ")
@@ -180,10 +186,12 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
 
 
 def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
-              with_noise=False, noise_path=my_vars.rawNoiseF):
+              with_noise=False, noise_path=my_vars.rawNoiseF, noise_type="mult",
+              c_key=jax.random.PRNGKey(0)):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
     """
+    n_key = c_key
     names_and_data = []
     my_arrs = os.listdir(data_arr_path)
     if with_noise:
@@ -200,7 +208,10 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
                 full_n = noise_path.joinpath( n )
                 noise_arr = jnp.load( full_n )
                 noise_arr = jnp.array(noise_arr, dtype=dtype)
-                arr = combine_signal_noise(arr, noise_arr)
+                if noise_type.lower().strip() == 'mult':
+                    arr = combine_signal_noise_mult(arr, noise_arr)
+                elif noise_type.lower().strip() == 'repl':
+                    n_key, arr = combine_signal_noise_repl(n_key, arr, noise_arr)
 
             names_and_data.append((f, arr))
             i += 1
@@ -208,11 +219,29 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
     return names_and_data
 
 
-def combine_signal_noise(signal_arr, noise_arr):
+def combine_signal_noise_mult(signal_arr, noise_arr):
     signal_arr = signal_arr - 0.5
     composite_arr = signal_arr*noise_arr
     composite_arr = composite_arr + 0.5 #Back to [0,1] in theory
     return composite_arr
+
+
+def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.75):
+    """
+    Replaces repl_perc of the signal array with the noise array values randomly
+    """
+    n_key, subkey = jax.random.split(c_key)
+    valid_indices = jnp.array(list(range(signal_arr.size))) #inds of indices
+    n_samples = int(repl_perc*signal_arr.size)
+    chosen_indices = jax.random.choice(subkey, valid_indices, 
+                                       shape=(n_samples,), replace=False)
+    xy_inds = jnp.array(list(product( \
+        jnp.arange(signal_arr.shape[0]), jnp.arange(signal_arr.shape[1]))))
+    
+    xs_sub, ys_sub = zip(*xy_inds[chosen_indices])
+
+    signal_arr = signal_arr.at[xs_sub, ys_sub].set(noise_arr[xs_sub, ys_sub])
+    return n_key, signal_arr
 
 
 def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesDataPath):
@@ -222,20 +251,14 @@ def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesData
     digit3_gamma = '{0:.3f}'.format(float(gamma))
     digit3_gamma = digit3_gamma.replace('.', "_")
     affinity_mat_save_name = str(load_folder.joinpath(\
-                                "Affinity_Matrix_gamma_%s"%digit3_gamma))
+                                "Affinity_Matrix_gamma_%s.npy"%digit3_gamma))
     affinity_mat = jnp.load(affinity_mat_save_name)
-    print(affinity_mat)
-    print(affinity_mat.shape)
     return affinity_mat
 
 
 if __name__ == "__main__":
-    """
     s = time.time()
     cap=10000
-    eval_clustering(cap=cap, simple_avg=True, with_noise=True)
+    eval_clustering(cap=cap, simple_avg=True, with_noise=True, my_gamma = 100.0)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)
-    """
-    load_affinity_matrix()
-    

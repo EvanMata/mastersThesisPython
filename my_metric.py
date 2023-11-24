@@ -1,9 +1,10 @@
 """
 File used for my metric of Total Variation Norm + Distance from pure color
 """ 
-
+import jax
 import jax.numpy as jnp
 
+@jax.jit
 def scaledTotalVariation(scaledImg): 
     # Calculate the scaled total variation ( scaled to 0-1 )
     diffX = jnp.abs(jnp.diff(scaledImg, axis=1))
