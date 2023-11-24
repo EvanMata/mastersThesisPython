@@ -14,6 +14,7 @@ import optimization as opti
 import pathlib_variable_names as my_vars
 
 from itertools import product
+from functools import partial
 from collections import defaultdict
 from sklearn.metrics import adjusted_rand_score
 
@@ -124,7 +125,7 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
 
 
 def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True, 
-                    with_noise=True, simple_avg=False, 
+                    with_noise=True, noise_type='repl', simple_avg=False, 
                     data_arr_path=my_vars.rawArraysF,
                     save_folder=my_vars.picklesDataPath):
     """
@@ -132,7 +133,8 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     and some statistics on the lambdas of of my various groupings
     """
     s = time.time()
-    names_and_data = load_data(data_arr_path, cap=cap, with_noise=with_noise)
+    names_and_data = load_data(data_arr_path, cap=cap, 
+                               with_noise=with_noise, noise_type=noise_type)
     aff_mat = load_affinity_matrix()
     e = time.time()
     print("Took %d seconds to load %d data pts and affinity matrix"%((e-s), cap))
@@ -212,6 +214,8 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
                     arr = combine_signal_noise_mult(arr, noise_arr)
                 elif noise_type.lower().strip() == 'repl':
                     n_key, arr = combine_signal_noise_repl(n_key, arr, noise_arr)
+                    repl_save_name = my_vars.replNoiseP%j
+                    jnp.save(repl_save_name, arr)
 
             names_and_data.append((f, arr))
             i += 1
@@ -219,14 +223,22 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
     return names_and_data
 
 
+@jax.jit
+def scale01(x):
+    return (x-jnp.min(x))/(jnp.max(x)-jnp.min(x))
+
+
+@jax.jit
 def combine_signal_noise_mult(signal_arr, noise_arr):
+    scaled_noise_arr = scale01(noise_arr)
     signal_arr = signal_arr - 0.5
-    composite_arr = signal_arr*noise_arr
+    composite_arr = signal_arr*scaled_noise_arr
     composite_arr = composite_arr + 0.5 #Back to [0,1] in theory
     return composite_arr
 
 
-def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.75):
+#@partial(jax.jit, static_argnames=['repl_perc'])
+def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.35):
     """
     Replaces repl_perc of the signal array with the noise array values randomly
     """
@@ -239,9 +251,15 @@ def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.75):
         jnp.arange(signal_arr.shape[0]), jnp.arange(signal_arr.shape[1]))))
     
     xs_sub, ys_sub = zip(*xy_inds[chosen_indices])
+    scaled_noise_arr = scale01(noise_arr)
+    combined_arr = repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub)
+    return n_key, combined_arr
 
-    signal_arr = signal_arr.at[xs_sub, ys_sub].set(noise_arr[xs_sub, ys_sub])
-    return n_key, signal_arr
+
+#@jax.jit
+def repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub):
+    scaled_noise_arr = scaled_noise_arr.at[xs_sub, ys_sub].set(signal_arr[xs_sub, ys_sub])
+    return scaled_noise_arr
 
 
 def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesDataPath):
@@ -251,7 +269,7 @@ def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesData
     digit3_gamma = '{0:.3f}'.format(float(gamma))
     digit3_gamma = digit3_gamma.replace('.', "_")
     affinity_mat_save_name = str(load_folder.joinpath(\
-                                "Affinity_Matrix_gamma_%s.npy"%digit3_gamma))
+                                "Affinity_Mat_gamma_%s.npy"%digit3_gamma))
     affinity_mat = jnp.load(affinity_mat_save_name)
     return affinity_mat
 
@@ -259,6 +277,7 @@ def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesData
 if __name__ == "__main__":
     s = time.time()
     cap=10000
-    eval_clustering(cap=cap, simple_avg=True, with_noise=True, my_gamma = 100.0)
+    eval_clustering(cap=cap, simple_avg=True, with_noise=True, 
+                    noise_type='repl', my_gamma = 1.0)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)

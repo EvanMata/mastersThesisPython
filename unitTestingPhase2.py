@@ -557,5 +557,5 @@ if __name__ == "__main__":
     print(affininty_matrix_ex(n_arrays=10000, img_size=100))
     """
     #check_aff()
-    #t_noise_combine()
-    t_jited_pair_aff()
+    t_noise_combine2()
+    #t_jited_pair_aff()

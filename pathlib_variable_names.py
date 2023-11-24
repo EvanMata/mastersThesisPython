@@ -56,7 +56,8 @@ rawArraysF = imagesPath.joinpath( "orbArrays" )
 rawArraysP = str(rawArraysF.joinpath( "orb_array_frame_%d" ))
 rawNoiseF = imagesPath.joinpath( "noise" )
 rawNoiseP = str(rawNoiseF.joinpath( "noise_array_frame_%d" ))
-
+replNoiseF = imagesPath.joinpath( "replacedNoise" )
+replNoiseP = str(replNoiseF.joinpath( "noise_array_frame_%d" ))
 
 '''
 Paths for the SMALL sample folders

@@ -320,10 +320,12 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
     digit3_gamma = '{0:.3f}'.format(float(gamma))
     digit3_gamma = digit3_gamma.replace('.', "_")
     affinity_mat_save_name = str(save_folder.joinpath(\
-                                "Affinity_Matrix_gamma_%s"%digit3_gamma))
+                                "Affinity_Mat_gamma_%s"%digit3_gamma))
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     arr_of_indices = jnp.arange(n_imgs)
+    triu_inds = jnp.triu_indices(arr.shape[0], k=1)
+    triu_1, triu_2 = triu_inds
     
     arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
     inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
@@ -337,7 +339,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
         past_batches = past_batches.tolist()
         for past_b in past_batches:
             affinities_load_name = str(save_folder.joinpath( \
-                "Affinity_batch_%d_gamma_%s.npy"%(past_b, digit3_gamma)))
+                "Affinity_b_%d_gamma_%s.npy"%(past_b, digit3_gamma)))
             batch = jnp.load(affinities_load_name)
             batch = batch.tolist()
             all_affinities.extend(batch)
@@ -355,17 +357,14 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
         if i % batch_size == batch_size - 1:
             last_b_arr = jnp.array(last_batch)
             affinities_save_name = str(save_folder.joinpath( \
-                                    "Affinity_batch_%d_gamma_%s"%(i, digit3_gamma)))
+                                    "Affinity_b_%d_gamma_%s"%(i, digit3_gamma)))
             jnp.save(affinities_save_name, last_b_arr)
             last_batch = []
+            start = i - batch_size + 1
+            batch_inds = (triu_1[start:i+1], triu_2[start:i+1])
+            arr = arr.at[batch_inds].set(last_b_arr.reshape(-1))
             print("On Affinity pair %d of %d"%(i, n_combos))
     
-    all_affinities = jnp.array(all_affinities)
-
-    print("Affinites shape: ", all_affinities.shape)
-
-    all_affinities = all_affinities.reshape(-1)
-    arr = arr.at[jnp.triu_indices(arr.shape[0], k=1)].set(all_affinities)
     arr = arr + arr.T
     arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
 
