@@ -298,7 +298,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
                       batch_size=5000, print_progress=True, 
-                      pickup=True, pickup_loc=45590000, 
+                      pickup=True, pickup_loc=14160000, 
                       save_folder=var_names.affinitiesPath):
     """
     Creates my affininty matrix, v-mapped.
@@ -324,10 +324,9 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     arr_of_indices = jnp.arange(n_imgs)
-    triu_inds = jnp.triu_indices(arr.shape[0], k=1)
-    triu_1, triu_2 = triu_inds
-    
     arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
+    triu_inds = jnp.triu_indices(arr.shape[0], k=1)
+    triu_1, triu_2 = triu_inds  
     inds_1, inds_2 = zip(*combinations(arr_of_indices, 2))
 
     n_combos = len(inds_1)

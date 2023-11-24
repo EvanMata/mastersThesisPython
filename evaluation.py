@@ -1,5 +1,6 @@
 
 import os
+import cv2
 import jax
 import time
 import pickle
@@ -135,10 +136,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     s = time.time()
     names_and_data = load_data(data_arr_path, cap=cap, 
                                with_noise=with_noise, noise_type=noise_type)
-    aff_mat = load_affinity_matrix()
+    #aff_mat = load_affinity_matrix()
     e = time.time()
     print("Took %d seconds to load %d data pts and affinity matrix"%((e-s), cap))
-    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg, aff_mat)
+    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg) #aff_mat)
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
     met_name = "metric_gamma_%f.pickle"%my_gamma
@@ -189,37 +190,47 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
 
 def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
               with_noise=False, noise_path=my_vars.rawNoiseF, noise_type="mult",
-              c_key=jax.random.PRNGKey(0)):
+              c_key=jax.random.PRNGKey(0), start_val=0):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
     """
     n_key = c_key
+    for k in range(start_val):
+        n_key, subkey = jax.random.split(c_key)
     names_and_data = []
     my_arrs = os.listdir(data_arr_path)
     if with_noise:
         my_noises = os.listdir(noise_path)
-    i = 0
-    for j in range(len(my_arrs)):
-        f = my_arrs[j]
-        if str(f)[-4:] == ".npy" and i < cap:
-            full_f = data_arr_path.joinpath( f )
-            arr = jnp.load( full_f )
-            arr = jnp.array(arr, dtype=dtype) #Reducing memory
-            if with_noise:
-                n = my_noises[j]
-                full_n = noise_path.joinpath( n )
-                noise_arr = jnp.load( full_n )
-                noise_arr = jnp.array(noise_arr, dtype=dtype)
-                if noise_type.lower().strip() == 'mult':
-                    arr = combine_signal_noise_mult(arr, noise_arr)
-                elif noise_type.lower().strip() == 'repl':
-                    n_key, arr = combine_signal_noise_repl(n_key, arr, noise_arr)
-                    repl_save_name = my_vars.replNoiseP%j
-                    jnp.save(repl_save_name, arr)
+    i = start_val
+    cond = (with_noise and noise_type.lower().strip() == 'mult') or (not with_noise)
+    if cond:
+        for j in range(start_val, len(my_arrs)):
+            f = my_arrs[j]
+            if str(f)[-4:] == ".npy" and i < cap:
+                full_f = data_arr_path.joinpath( f )
+                arr = jnp.load( full_f )
+                arr = jnp.array(arr, dtype=dtype) #Reducing memory
+                if with_noise:
+                    n = my_noises[j]
+                    full_n = noise_path.joinpath( n )
+                    noise_arr = jnp.load( full_n )
+                    noise_arr = jnp.array(noise_arr, dtype=dtype)
+                    if noise_type.lower().strip() == 'mult':
+                        arr = combine_signal_noise_mult(arr, noise_arr)
 
-            names_and_data.append((f, arr))
-            i += 1
-        
+                names_and_data.append((f, arr))
+                i += 1
+
+    elif noise_type.lower().strip() == 'repl' and with_noise:
+        for j in range(start_val, len(my_arrs)):
+            f = my_arrs[j]
+            if str(f)[-4:] == ".npy" and i < cap:
+                repl_load_name = my_vars.replNoiseP%j + ".npy"
+                arr = jnp.load(repl_load_name)
+
+                names_and_data.append((f, arr))
+                i += 1
+
     return names_and_data
 
 
@@ -238,7 +249,8 @@ def combine_signal_noise_mult(signal_arr, noise_arr):
 
 
 #@partial(jax.jit, static_argnames=['repl_perc'])
-def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.35):
+def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.25,
+                              bottom=0.2, top=0.8):
     """
     Replaces repl_perc of the signal array with the noise array values randomly
     """
@@ -252,13 +264,28 @@ def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.35):
     
     xs_sub, ys_sub = zip(*xy_inds[chosen_indices])
     scaled_noise_arr = scale01(noise_arr)
-    combined_arr = repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub)
+    #combined_arr = repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub)
+    combined_arr = repl_arr2(signal_arr, scaled_noise_arr, xs_sub, ys_sub, bottom, top)
     return n_key, combined_arr
 
 
 #@jax.jit
 def repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub):
     scaled_noise_arr = scaled_noise_arr.at[xs_sub, ys_sub].set(signal_arr[xs_sub, ys_sub])
+    return scaled_noise_arr
+
+
+def repl_arr2(signal_arr, scaled_noise_arr, xs_sub, ys_sub, bottom, top):
+    signal_arr, scaled_noise_arr, xs_sub, ys_sub = \
+        np.array(signal_arr), np.array(scaled_noise_arr), xs_sub, ys_sub
+    scaled_noise_arr[xs_sub, ys_sub] = signal_arr[xs_sub, ys_sub]
+    
+    scaled_noise_arr[scaled_noise_arr < bottom] = 0
+    scaled_noise_arr[scaled_noise_arr > top] = 1
+
+    scaled_noise_arr = cv2.blur(scaled_noise_arr.astype(float),(3,3),cv2.BORDER_REPLICATE) #Blur?
+
+    scaled_noise_arr = jnp.array(scaled_noise_arr)
     return scaled_noise_arr
 
 
@@ -274,10 +301,40 @@ def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesData
     return affinity_mat
 
 
+def save_noise_arr(j=10000, data_arr_path=my_vars.rawArraysF, dtype=jnp.float16,
+                   noise_path=my_vars.rawNoiseF, c_key=jax.random.PRNGKey(0)):
+    n_key = c_key
+    for k in range(j):
+        n_key, subkey = jax.random.split(c_key)
+
+    my_arrs = os.listdir(data_arr_path)
+    my_noises = os.listdir(noise_path)
+    f = my_arrs[j]
+    if str(f)[-4:] == ".npy":
+        full_f = data_arr_path.joinpath( f )
+        arr = jnp.load( full_f )
+        arr = jnp.array(arr, dtype=dtype)
+        n = my_noises[j]
+        full_n = noise_path.joinpath( n )
+        noise_arr = jnp.load( full_n )
+
+        n_key, combo_arr = combine_signal_noise_repl(n_key, arr, noise_arr, repl_perc=0.25,
+                              bottom=0.2, top=0.8)
+    
+        save_name = my_vars.replNoiseP%j
+        jnp.save(save_name, combo_arr)
+
 if __name__ == "__main__":
+    """
     s = time.time()
     cap=10000
     eval_clustering(cap=cap, simple_avg=True, with_noise=True, 
                     noise_type='repl', my_gamma = 1.0)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)
+    
+    #save_noise_arr(j=10000, data_arr_path=my_vars.rawArraysF, dtype=jnp.float16,
+    #               noise_path=my_vars.rawNoiseF, c_key=jax.random.PRNGKey(0))
+    """
+    aff = load_affinity_matrix()
+    print(aff.shape)
