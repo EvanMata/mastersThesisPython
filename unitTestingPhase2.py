@@ -500,6 +500,29 @@ def t_noise_combine2():
     plt.show()
 
 
+def prev_noisy_arr(inds=[0,1,2,9999]):
+    
+    base_name = var_names.replNoiseP + ".npy"
+    data0 = jnp.load(base_name%inds[0])
+    data1 = jnp.load(base_name%inds[1])
+    data2 = jnp.load(base_name%inds[2])
+    data3 = jnp.load(base_name%inds[3])
+
+    fig, axs = plt.subplots(2,2)
+    axs[0, 0].imshow(data0, cmap='hot', interpolation='nearest')
+    axs[0, 1].imshow(data1, cmap='hot', interpolation='nearest')
+    axs[1, 0].imshow(data2, cmap='hot', interpolation='nearest')
+    axs[1, 1].imshow(data3, cmap='hot', interpolation='nearest')
+    plt.show()
+
+    print("0-1:", clu.calcPairAffinity(data0, data1, gamma=jnp.array([1.])))
+    print("0-2:", clu.calcPairAffinity(data0, data2, gamma=jnp.array([1.])))
+    print("0-3:", clu.calcPairAffinity(data0, data3, gamma=jnp.array([1.])))
+    print("1-2:", clu.calcPairAffinity(data1, data2, gamma=jnp.array([1.])))
+    print("1-3:", clu.calcPairAffinity(data1, data3, gamma=jnp.array([1.])))
+    print("2-3:", clu.calcPairAffinity(data2, data3, gamma=jnp.array([1.])))
+
+
 def t_jited_pair_aff(n_trials=5000):
     n = n_trials
     imgs = jax.random.normal(jax.random.PRNGKey(0), (n,120,120))
@@ -557,5 +580,6 @@ if __name__ == "__main__":
     print(affininty_matrix_ex(n_arrays=10000, img_size=100))
     """
     #check_aff()
-    t_noise_combine2()
+    #t_noise_combine2()
     #t_jited_pair_aff()
+    prev_noisy_arr()

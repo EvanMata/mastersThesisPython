@@ -53,12 +53,29 @@ def distFromPureColor(image, pureColors=[0, 1]):
     return distOverall
 
 
+@jax.jit
+def distFromPureColor2(image):
+    """
+    Just 0, 1 as my pure states
+    """
+    sqr0 = image**2
+    sqr1 = (jnp.ones(image.shape) - image)**2
+    min_ds = jnp.minimum(sqr0, sqr1)
+    dist = jnp.sum(min_ds) / image.size
+    return dist
+
+
+@jax.jit
+def scale01(x):
+    return (x-jnp.min(x))/(jnp.max(x)-jnp.min(x))
+
+
 def closest_sq_dist_tv_mix(image, lambdaVal=0.5): 
     """
     A convex combination of total variation and square distance from the closest domain/pureColor
     sTV >> dPC most of the time in the trivial example tested
     """
-    scaledImg = (image - jnp.min(image)) / (jnp.max(image) - jnp.min(image))
+    scaledImg = scale01(image)
     sTV = scaledTotalVariation(scaledImg)
-    dPC = distFromPureColor(scaledImg, pureColors=[0, 1])
+    dPC = distFromPureColor2(scaledImg)
     return lambdaVal*sTV + (1 - lambdaVal)*dPC

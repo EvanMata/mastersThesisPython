@@ -44,12 +44,12 @@ def format_nice(lambdas_dict):
     clustering = []
     calc_lambdas = []
     for clus, pts_and_lambdas in lambdas_dict.items():
-        pts_lambdas, pts = zip(*pts_and_lambdas)
+        pts_lambdas, pts_indexs = zip(*pts_and_lambdas)
         # cluster_pts[clus_l].append(pt) # Commented out to save memory
         # cluster_lambdas[clus_l].append(pt_lambda)
-        clus_l = jnp.full(len(pts), clus)
-        clustering.extend(zip(pts, clus_l))
-        calc_lambdas.extend(zip(pts, pts_lambdas))
+        clus_l = jnp.full(len(pts_indexs), clus)
+        clustering.extend(zip(pts_indexs, clus_l))
+        calc_lambdas.extend(zip(pts_indexs, pts_lambdas))
         
     clustering = sorted(clustering)
     clustering = [c[1] for c in clustering]
@@ -125,6 +125,17 @@ def find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs
     return good_indices, close_indices, transitory_indices, end_states
 
 
+def preview_df(rows=[1,9999], data_name="my_data.pkl", load_folder=my_vars.picklesDataPath):
+    """
+    Shows the given rows of the df 
+    """
+    data_path = str(load_folder.joinpath("my_data.pkl"))
+    df = pd.read_pickle(data_path)
+
+    sub_df = df[df['j'].isin(rows)]
+    print(sub_df.head(len(rows)))
+
+
 def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True, 
                     with_noise=True, noise_type='repl', simple_avg=False, 
                     data_arr_path=my_vars.rawArraysF,
@@ -136,10 +147,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     s = time.time()
     names_and_data = load_data(data_arr_path, cap=cap, 
                                with_noise=with_noise, noise_type=noise_type)
-    #aff_mat = load_affinity_matrix()
+    aff_mat = load_affinity_matrix()
     e = time.time()
     print("Took %d seconds to load %d data pts and affinity matrix"%((e-s), cap))
-    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg) #aff_mat)
+    metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg, aff_mat)
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
     met_name = "metric_gamma_%f.pickle"%my_gamma
@@ -184,6 +195,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
         print("Approx mean %f and stv %f of lambdas"%(l_a_mean, l_a_std))
         print("Transitory mean %f and stv %f of lambdas"%(l_t_mean, l_t_std))
         print()
+
+    for clus, info in lambdas_dict.items():
+        vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, 
+             save_folder=my_vars.stateImgsP, array_shape=(120,120))
     
     return 
 
@@ -303,6 +318,9 @@ def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesData
 
 def save_noise_arr(j=10000, data_arr_path=my_vars.rawArraysF, dtype=jnp.float16,
                    noise_path=my_vars.rawNoiseF, c_key=jax.random.PRNGKey(0)):
+    """
+    Create and save a noise array from the given j'th base array and noise array
+    """
     n_key = c_key
     for k in range(j):
         n_key, subkey = jax.random.split(c_key)
@@ -324,17 +342,64 @@ def save_noise_arr(j=10000, data_arr_path=my_vars.rawArraysF, dtype=jnp.float16,
         save_name = my_vars.replNoiseP%j
         jnp.save(save_name, combo_arr)
 
-if __name__ == "__main__":
+
+def vis_sum_noise(noise_path=my_vars.rawNoiseF):
     """
+    Creates a visual of the sum of my noise
+    """
+    my_noises = os.listdir(noise_path)
+    noise_tot = jnp.zeros((120,120))
+    for j in range(len(my_noises)):
+        n = my_noises[j]
+        full_n = noise_path.joinpath( n )
+        noise_arr = jnp.load( full_n )
+        noise_tot += noise_arr
+
+    noise_tot = noise_tot / len(my_noises)
+    print(jnp.min(noise_tot), jnp.max(noise_tot))
+    plt.imshow(noise_tot, cmap='hot', interpolation='nearest')
+    plt.savefig("Averaged Noise")
+
+
+def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data, 
+             save_folder=my_vars.stateImgsP, array_shape=(120,120)):
+    """
+    Saves an image of the cluster to the given save folder
+    """
+    save_name = my_vars.stateImgsP%(clus, gamma)
+    if simple_avg:
+        save_name += "_simple"
+
+    img = jnp.zeros(array_shape)
+    lambdas_and_indices = lambdas_dict[clus]
+    lambdas, indices = zip(*lambdas_and_indices)
+    for i in range(len(lambdas)):
+        l = lambdas[i]
+        im_ind = indices[i]
+        im = names_and_data[i][1]
+        img += l*im
+
+    img = scale01(img)
+
+    plt.imshow(img, cmap='Greys', interpolation='nearest')
+    plt.colorbar()
+    plt.savefig(save_name)
+
+
+
+
+if __name__ == "__main__":
+    #"""
     s = time.time()
     cap=10000
-    eval_clustering(cap=cap, simple_avg=True, with_noise=True, 
-                    noise_type='repl', my_gamma = 1.0)
+    eval_clustering(cap=cap, simple_avg=True, with_noise=True, n_cs=17+1, 
+                    noise_type='repl', my_gamma = 50.0)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)
     
     #save_noise_arr(j=10000, data_arr_path=my_vars.rawArraysF, dtype=jnp.float16,
     #               noise_path=my_vars.rawNoiseF, c_key=jax.random.PRNGKey(0))
-    """
-    aff = load_affinity_matrix()
-    print(aff.shape)
+    #"""
+    #aff = load_affinity_matrix()
+    #print(aff.shape)
+    #preview_df()

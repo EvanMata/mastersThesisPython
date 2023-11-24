@@ -106,7 +106,8 @@ def get_info(my_gamma, provided_data, n_cs, simple_avg=False, premade_affinity_m
     Returns: 
     --------
         metric_val (float) : Value of my metric for the given clustering 
-        lamdbas_dict (dict) : dict of cluster num: [(img lambda, img num), (), ...]
+        lamdbas_dict (dict) : dict of cluster_label: zip[(lambda_i, i of corresponding img), (), ...]
+            Where img_i is in the given cluster
     """
     
     data = [i[1] for i in provided_data]
@@ -158,8 +159,8 @@ def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False,
     --------
         total_metric_value (float) :  The sum of my metric value across each cluster
                                       for the given gamma value
-        lamdbas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
-                                Where img_i is in the given cluster
+        lamdbas_dict (dict) : dict of cluster_label: zip[(lambda_i, i of corresponding img), (), ...]
+            Where img_i is in the given cluster
     """
     images = jnp.array(images_tup)
     gamma = jnp.array([gamma])
@@ -298,7 +299,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
                       batch_size=5000, print_progress=True, 
-                      pickup=True, pickup_loc=14160000, 
+                      pickup=True, pickup_loc=49980000, 
                       save_folder=var_names.affinitiesPath):
     """
     Creates my affininty matrix, v-mapped.
@@ -449,7 +450,7 @@ def save_affinity_matrix(batch_size=5000, gamma=jnp.array([1.0]), n_imgs=10000,
     digit3_gamma = '{0:.3f}'.format(float(gamma))
     digit3_gamma = digit3_gamma.replace('.', "_")
     affinity_mat_save_name = str(affininty_folder.joinpath(\
-                                "Affinity_Matrix_gamma_%s"%digit3_gamma))
+                                "Affinity_Mat_gamma_%s"%digit3_gamma))
     
     arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
     triu_inds = jnp.triu_indices(arr.shape[0], k=1)
@@ -461,8 +462,9 @@ def save_affinity_matrix(batch_size=5000, gamma=jnp.array([1.0]), n_imgs=10000,
     past_batches = past_batches.tolist()
     for past_b in past_batches:
         affinities_load_name = str(batch_save_folder.joinpath( \
-            "Affinity_batch_%d_gamma_%s.npy"%(past_b, digit3_gamma)))
+            "Affinity_b_%d_gamma_%s.npy"%(past_b, digit3_gamma)))
         batch = jnp.load(affinities_load_name).reshape(-1)
+        print(batch)
         start = past_b - batch_size + 1
         batch_inds = (triu_1[start:past_b+1], triu_2[start:past_b+1])
         arr = arr.at[batch_inds].set(batch)
@@ -472,6 +474,8 @@ def save_affinity_matrix(batch_size=5000, gamma=jnp.array([1.0]), n_imgs=10000,
 
     arr = arr + arr.T
     arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
+
+    print(arr)
 
     print("Affinity matrix fully constructed")
     jnp.save(affinity_mat_save_name, arr)
@@ -549,9 +553,10 @@ def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
     Returns:
     --------
         total_metric_value (jnp array) :  the sum of my metric value across each cluster
-        lamdbas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
+        lamdbas_dict (dict) : dict of cluster_label: zip[(lambda_i, i of corresponding img), (), ...]
             Where img_i is in the given cluster
     """
+    print("Simple Avg: ", simple_avg)
     images = jnp.array(images_tup)
     lambdas_dict = dict()
     total_metric_value = jnp.array([0])
@@ -562,12 +567,23 @@ def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
         relevant_image_indices = jnp.array([i for i, x in enumerate(clusters) \
                                             if x == cluster_label])
         if simple_avg:
+            s = time.time()
             total_metric_value, lambdas_and_indices = min_simp_avg_metric_and_lambdas( \
                                     total_metric_value, relevant_image_indices, images)
+            e = time.time()
+            print("Num pts in clus: ", len(relevant_image_indices))
+            print("Clus Done in: ", e - s)
+            
         else:
+            s = time.time()
             total_metric_value, lambdas_and_indices = minimization_metric_and_lambdas( \
                                     total_metric_value, cluster_label, \
                                     relevant_image_indices, images)
+            e = time.time()
+            print("Num pts in clus: ", len(relevant_image_indices))
+            print("Clus Done in: ", e - s)
+            print()
+            
         lambdas_dict[cluster_label] = lambdas_and_indices
     return total_metric_value, lambdas_dict
 
@@ -593,8 +609,11 @@ def simple_avg_metric(relevant_images, metric=DEFAULT_METRIC):
     # Set Lambdas as uniform.
     lambdas = jnp.full( len(relevant_images), 1/len(relevant_images) )
     mini_d['x'] = lambdas
+    s = time.time()
     combo = jnp.array([lambdas[i]*relevant_images[i] for i in range(len(lambdas))])
-    comboImg = jnp.sum(combo, axis=0)    
+    e = time.time()
+    print("Sum Time: ", e - s)
+    comboImg = jnp.sum(combo, axis=0) 
     metric_value = metric(comboImg)
     mini_d['fun'] = metric_value
     return mini_d
@@ -619,7 +638,7 @@ def min_simp_avg_metric_and_lambdas(total_metric_value, relevant_image_indices, 
         total_metric_value (float) : the input total metric value with the 
             current cluster's metric value added on w. the relevant weighting frac 
             of the total number of pts
-        lambdas_and_indices (list) : List of (item lambda, item index)
+        lambdas_and_indices (zip) : list of (item lambda, item index)
         temp_lambdas_dict (dict) : dict of cluster_label: [(lambda_i, img_i), (), ...]
     """
     temp_lambdas_dict = dict()
