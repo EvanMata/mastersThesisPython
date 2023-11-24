@@ -7,6 +7,7 @@ small_sample_paths = ["SMALL_SAMPLE"]
 full_sample_paths = ["Provided", "FULL_SAMPLE"]
 synth_data_paths = ["Created", "mastersThesisPython", "syntheticData"]
 pickle_data_paths = ["Created", "mastersThesisPython", "pickles"]
+affinities_paths = ["Created", "mastersThesisPython", "affinities"]
 
 p = pathlib.Path(__file__)
 print()
@@ -34,6 +35,9 @@ generatedDataPath = pathlib.Path(*generatedDataPath)
 
 picklesDataPath = core + pickle_data_paths
 picklesDataPath = pathlib.Path(*picklesDataPath)
+
+affinitiesPath = core + affinities_paths
+affinitiesPath = pathlib.Path(*affinitiesPath)
 
 zenodoPath = core2 + zenodo_paths
 zenodoPath = pathlib.Path(*zenodoPath)

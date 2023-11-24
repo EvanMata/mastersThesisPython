@@ -298,8 +298,8 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
                       batch_size=5000, print_progress=True, 
-                      pickup=False, pickup_loc=0, 
-                      save_folder=var_names.picklesDataPath):
+                      pickup=True, pickup_loc=45590000, 
+                      save_folder=var_names.affinitiesPath):
     """
     Creates my affininty matrix, v-mapped.
 
@@ -320,7 +320,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
     digit3_gamma = '{0:.3f}'.format(float(gamma))
     digit3_gamma = digit3_gamma.replace('.', "_")
     affinity_mat_save_name = str(save_folder.joinpath(\
-                                "Affinity_Matrix_gamma_%s.pickle"%digit3_gamma))
+                                "Affinity_Matrix_gamma_%s"%digit3_gamma))
     arr_of_imgs = jnp.array(arr_of_imgs)
     n_imgs = len(arr_of_imgs)
     arr_of_indices = jnp.arange(n_imgs)
@@ -337,7 +337,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
         past_batches = past_batches.tolist()
         for past_b in past_batches:
             affinities_load_name = str(save_folder.joinpath( \
-                "Affinity_batch_%d_gamma_%s"%(past_b, digit3_gamma)))
+                "Affinity_batch_%d_gamma_%s.npy"%(past_b, digit3_gamma)))
             batch = jnp.load(affinities_load_name)
             batch = batch.tolist()
             all_affinities.extend(batch)
@@ -430,6 +430,54 @@ def performClustering(affinities, n_clusters):
     clusters = clustering.labels_
     return clusters
 
+
+def save_affinity_matrix(batch_size=5000, gamma=jnp.array([1.0]), n_imgs=10000,
+                         batch_save_folder=var_names.affinitiesPath, 
+                         affininty_folder=var_names.picklesDataPath):
+    """
+    Sets my affinity matrix in chunks w. my batches to hopefully preserve memory,
+    then saves it.
+    Unclear why affinity matrix takes up so much memory.
+
+    Inputs:
+    --------
+        batch_size (int) : How many affinities are in 1 batch
+        gamma (float) : The gamma value used to generate the affinity matrix
+        n_imgs (int) : Number of imgs used for the simulation
+        batch_save_folder (pathlib Path) : Path where batchs arrays were saved
+        affinity_folder (pathlib Path) : Path to save the affinity matrix
+    """
+    
+    digit3_gamma = '{0:.3f}'.format(float(gamma))
+    digit3_gamma = digit3_gamma.replace('.', "_")
+    affinity_mat_save_name = str(affininty_folder.joinpath(\
+                                "Affinity_Matrix_gamma_%s"%digit3_gamma))
+    
+    arr = jnp.zeros((n_imgs, n_imgs), dtype=jnp.float16)
+    triu_inds = jnp.triu_indices(arr.shape[0], k=1)
+    triu_1, triu_2 = triu_inds
+    
+    inds_1, inds_2 = zip(*combinations(jnp.arange(n_imgs), 2))
+    n_combos = len(inds_1)
+    past_batches = jnp.array(list(range(0, n_combos, batch_size))) + batch_size - 1
+    past_batches = past_batches.tolist()
+    for past_b in past_batches:
+        affinities_load_name = str(batch_save_folder.joinpath( \
+            "Affinity_batch_%d_gamma_%s.npy"%(past_b, digit3_gamma)))
+        batch = jnp.load(affinities_load_name).reshape(-1)
+        start = past_b - batch_size + 1
+        batch_inds = (triu_1[start:past_b+1], triu_2[start:past_b+1])
+        arr = arr.at[batch_inds].set(batch)
+        print("Set Batch %d"%past_b)
+
+    print("Affinity matrix mostly constructed")
+
+    arr = arr + arr.T
+    arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
+
+    print("Affinity matrix fully constructed")
+    jnp.save(affinity_mat_save_name, arr)
+    print("Affinity matrix saved")
 
 ##############################################################
 # What is an elegant way to make the clusters name invarient #
@@ -678,5 +726,5 @@ def usage():
 
 if __name__ == "__main__":
     # gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS")
-    basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
-     
+    # basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
+    save_affinity_matrix()

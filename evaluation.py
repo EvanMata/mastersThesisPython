@@ -215,10 +215,27 @@ def combine_signal_noise(signal_arr, noise_arr):
     return composite_arr
 
 
+def load_affinity_matrix(gamma=jnp.array([1.0]), load_folder=my_vars.picklesDataPath):
+    """
+    Loads a preconstructed affinity matrix
+    """
+    digit3_gamma = '{0:.3f}'.format(float(gamma))
+    digit3_gamma = digit3_gamma.replace('.', "_")
+    affinity_mat_save_name = str(load_folder.joinpath(\
+                                "Affinity_Matrix_gamma_%s"%digit3_gamma))
+    affinity_mat = jnp.load(affinity_mat_save_name)
+    print(affinity_mat)
+    print(affinity_mat.shape)
+    return affinity_mat
+
+
 if __name__ == "__main__":
+    """
     s = time.time()
     cap=10000
     eval_clustering(cap=cap, simple_avg=True, with_noise=True)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)
+    """
+    load_affinity_matrix()
     
