@@ -201,8 +201,7 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
         approx_score = adjusted_rand_score(t_clus_approx, c_clus_approx)
 
     for clus, info in lambdas_dict.items():
-        print(clus)
-        vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, only_states
+        vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, only_states,
              save_folder=my_vars.stateImgsP, array_shape=(120,120))
 
     if print_it:
@@ -224,6 +223,85 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     
     return 
 
+
+def multi_eval_clus_compare(gammas=[0.01, 0.05, 0.25, 1, 4, 20, 100], 
+                            n_cs=[17, 18, 19, 20, 21, 22], 
+                            n_cs_os=[17, 18, 19, 20]):
+    """
+    Compare multiple clusterings all at once.
+    """
+    data_arr_path=my_vars.rawArraysF
+    save_folder=my_vars.picklesDataPath
+    with_noise=True
+    noise_type='repl'
+    cap=10000
+
+    df = pd.DataFrame(columns=['Gamma', 'Num Clusters', 'Only States', 'Metric', 'Rand Score'])
+
+    names_and_data = load_data(data_arr_path, cap=cap, 
+                               with_noise=with_noise, noise_type=noise_type)
+    aff_mat = load_affinity_matrix()
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
+    
+    names_and_data_os = pure_states_only(names_and_data, good_indices)
+    aff_mat_os = pure_aff_only(aff_mat, good_indices)
+
+    print()
+    print()
+    print("ONLY STATES:")
+    print()
+    print()
+
+    i = 0
+    for n_c in n_cs_os:
+        for g in gammas:
+            metric_val, lambdas_dict = opti.get_info(g, names_and_data_os, n_c, True, aff_mat_os)
+            for clus, info in lambdas_dict.items():
+                vis_clus(g, clus, lambdas_dict, True, names_and_data, True, 
+                    save_folder=my_vars.stateImgsP, array_shape=(120,120))
+                
+            calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+
+            t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
+            c_clus_goods = calc_clusters
+            rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
+
+            df.loc[len(df.index)] = [g, n_c, True, metric_val, rand_s]
+            df.to_pickle("Clustering_Comparions")
+            i += 1
+            print(df.head(i))
+
+            print("Gamma: %f, Num Clus: %d, Rand Score: %f"%(g, n_c, rand_s))
+            print("Metric: %f"%metric_val)
+            print()
+
+    print()
+    print()
+    print("INCLUDING TRANSITORY")
+    print()
+    print()
+
+    for n_c in n_cs:
+        for g in gammas:
+            metric_val, lambdas_dict = opti.get_info(g, names_and_data, n_c, True, aff_mat)
+            for clus, info in lambdas_dict.items():
+                vis_clus(g, clus, lambdas_dict, True, names_and_data, False, 
+                    save_folder=my_vars.stateImgsP, array_shape=(120,120))
+                
+            calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+
+            t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
+            c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
+            rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
+
+            df.loc[len(df.index)] = [g, n_c, False, metric_val, rand_s]
+            df.to_pickle("Clustering_Comparions")
+            i += 1
+            print(df.head(i))
+
+            print("Gamma: %f, Num Clus: %d, Rand Score: %f"%(g, n_c, rand_s))
+            print("Metric: %f"%metric_val)
+            print()
 
 def pure_aff_only(aff_mat, good_indices):
     # Gets a principle submatrix including only good_indices rows & cols
@@ -506,7 +584,8 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
 
 
 if __name__ == "__main__":
-    #"""
+    multi_eval_clus_compare()
+    """
     s = time.time()
     cap=10000
     eval_clustering(cap=cap, simple_avg=True, with_noise=True, n_cs=17, 
@@ -516,7 +595,7 @@ if __name__ == "__main__":
     
     #save_noise_arr(j=10000, data_arr_path=my_vars.rawArraysF, dtype=jnp.float16,
     #               noise_path=my_vars.rawNoiseF, c_key=jax.random.PRNGKey(0))
-    #"""
+    """
     #aff = load_affinity_matrix()
     #print(aff.shape)
     """

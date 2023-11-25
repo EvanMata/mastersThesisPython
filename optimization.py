@@ -143,7 +143,7 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
 
 
 def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, 
-                           premade_affinity_matrix=None, print_timing=True):
+                           premade_affinity_matrix=None, print_timing=False):
     """
     Clustering given my gamma and params. This is what I want to minimize for 
     a given gamma.
@@ -415,14 +415,15 @@ def affinity_matrix(arr_of_imgs, gamma=jnp.array([0.5]), \
     return arr
 
 
-def performClustering(affinities, n_clusters):
+def performClustering(affinities, n_clusters, print_it=False):
     """
     Spectral clustering with pre-computed affinity matrix.
     """
-    print()
-    print("Affinities: ")
-    print(affinities)
-    print()
+    if print_it:
+        print()
+        print("Affinities: ")
+        print(affinities)
+        print()
     clustering = SpectralClustering(n_clusters=n_clusters,
                                     affinity="precomputed",
                                     random_state=0).fit(affinities)
