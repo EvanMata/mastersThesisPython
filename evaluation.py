@@ -129,15 +129,26 @@ def preview_df(rows=[1,9999], data_name="my_data.pkl", load_folder=my_vars.pickl
     """
     Shows the given rows of the df 
     """
-    data_path = str(load_folder.joinpath("my_data.pkl"))
+    data_path = str(load_folder.joinpath(data_name))
     df = pd.read_pickle(data_path)
 
     sub_df = df[df['j'].isin(rows)]
     print(sub_df.head(len(rows)))
 
 
+def counts_in_states(data_name="my_data.pkl", load_folder=my_vars.picklesDataPath):
+    data_path = str(load_folder.joinpath(data_name))
+    df = pd.read_pickle(data_path)
+    sub_df = df[df['end state'] == df['start state']]
+    print("Total Counts of states: ")
+    print(df['end state'].value_counts())
+    print("Counts of number of frames IN each state")
+    print(sub_df['end state'].value_counts())
+
+
 def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True, 
                     with_noise=True, noise_type='repl', simple_avg=False, 
+                    only_states=False,
                     data_arr_path=my_vars.rawArraysF,
                     save_folder=my_vars.picklesDataPath):
     """
@@ -148,6 +159,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     names_and_data = load_data(data_arr_path, cap=cap, 
                                with_noise=with_noise, noise_type=noise_type)
     aff_mat = load_affinity_matrix()
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
+    if only_states:
+        names_and_data = pure_states_only(names_and_data, good_indices)
+        aff_mat = pure_aff_only(aff_mat, good_indices)
     e = time.time()
     print("Took %d seconds to load %d data pts and affinity matrix"%((e-s), cap))
     metric_val, lambdas_dict = opti.get_info(my_gamma, names_and_data, n_cs, simple_avg, aff_mat)
@@ -163,6 +178,84 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
 
     with open(met_name, 'wb') as handle:
         pickle.dump(metric_val, handle)
+
+    calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+    
+    t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
+    if not only_states:
+        c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
+    else:
+        c_clus_goods = calc_clusters
+    lambdas_good = jnp.array([l for i, l in enumerate(calc_lambdas) if i in good_indices])
+    l_g_mean, l_g_std = jnp.mean(lambdas_good), jnp.std(lambdas_good)
+    exact_score = adjusted_rand_score(t_clus_goods, c_clus_goods)
+
+    if not only_states:
+        t_clus_approx = [t for i, t in enumerate(true_clusters) if i in approx_indices]
+        c_clus_approx = [t for i, t in enumerate(calc_clusters) if i in approx_indices]
+    
+        lambdas_approx = jnp.array([l for i, l in enumerate(calc_lambdas) if i in approx_indices])
+        lambdas_transitory = jnp.array([l for i, l in enumerate(calc_lambdas) if i in transitory_indices])
+        l_a_mean, l_a_std = jnp.mean(lambdas_approx), jnp.std(lambdas_approx)
+        l_t_mean, l_t_std = jnp.mean(lambdas_transitory), jnp.std(lambdas_transitory)
+        approx_score = adjusted_rand_score(t_clus_approx, c_clus_approx)
+
+    for clus, info in lambdas_dict.items():
+        print(clus)
+        vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, only_states
+             save_folder=my_vars.stateImgsP, array_shape=(120,120))
+
+    if print_it:
+        print("GAMMA: ")
+        print(my_gamma)
+        print("METRIC VALUE: ")
+        print(metric_val)
+        print("True Eval:")
+        print(exact_score)
+        if not only_states:
+            print("Approx Eval: ")
+            print(approx_score)
+        print()
+        print("Exacts mean %f and stv %f of lambdas"%(l_g_mean, l_g_std))
+        if not only_states:
+            print("Approx mean %f and stv %f of lambdas"%(l_a_mean, l_a_std))
+            print("Transitory mean %f and stv %f of lambdas"%(l_t_mean, l_t_std))
+        print()
+    
+    return 
+
+
+def pure_aff_only(aff_mat, good_indices):
+    # Gets a principle submatrix including only good_indices rows & cols
+    inds = jnp.array(good_indices)
+    return aff_mat[jnp.ix_(inds,inds)]
+
+
+def pure_states_only(names_and_data, good_indices):
+    """
+    Returns names and data, but only where its in a pure state and 
+    not transitioning
+    """
+    return [nd for i, nd in enumerate(names_and_data) if i in good_indices]
+
+
+def vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True, 
+                            load_folder=my_vars.picklesDataPath, print_it=True):
+    """
+    Same as vis_clus but loads in results and then calls it.
+    """
+
+    lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
+    met_name = "metric_gamma_%f.pickle"%my_gamma
+
+    lmd_name = str(load_folder.joinpath(lmd_name))
+    met_name = str(load_folder.joinpath(met_name))
+
+    with open(lmd_name, 'rb') as handle:
+        lambdas_dict = pickle.load(handle)
+
+    with open(met_name, 'rb') as handle:
+        metric_val = pickle.load(handle)
 
     calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
     good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
@@ -199,8 +292,6 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     for clus, info in lambdas_dict.items():
         vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, 
              save_folder=my_vars.stateImgsP, array_shape=(120,120))
-    
-    return 
 
 
 def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
@@ -208,6 +299,7 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
               c_key=jax.random.PRNGKey(0), start_val=0):
     """
     Loads all my arrays into a list of [(f name, array), (), ...]
+    names and data is lst of tuples
     """
     n_key = c_key
     for k in range(start_val):
@@ -247,6 +339,27 @@ def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
                 i += 1
 
     return names_and_data
+
+
+#Can be deleted eventually
+def lmd_dict_vs_all_clus(my_gamma=50.0, load_folder=my_vars.picklesDataPath, cap=10000):
+    intended_inds = set(list(range(cap)))
+    lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
+
+    lmd_name = str(load_folder.joinpath(lmd_name))
+
+    with open(lmd_name, 'rb') as handle:
+        lambdas_dict = pickle.load(handle)
+
+    all_inds = []
+    for clu, lmds_and_inds in lambdas_dict.items():
+        lmds, inds = zip(*lmds_and_inds)
+        inds = jnp.array(inds).reshape(-1)
+        all_inds.extend(inds.tolist())
+
+    print(intended_inds - set(all_inds))
+    print(set(all_inds) - intended_inds)
+    print(len(all_inds))
 
 
 @jax.jit
@@ -362,7 +475,7 @@ def vis_sum_noise(noise_path=my_vars.rawNoiseF):
 
 
 def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data, 
-             save_folder=my_vars.stateImgsP, array_shape=(120,120)):
+             only_states, save_folder=my_vars.stateImgsP, array_shape=(120,120)):
     """
     Saves an image of the cluster to the given save folder
     """
@@ -371,6 +484,8 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     save_name = my_vars.stateImgsP%(clus, digit3_gamma)
     if simple_avg:
         save_name += "_simple"
+    if only_states:
+        save_name += "_only_states"
 
     img = jnp.zeros(array_shape)
     lambdas_and_indices = lambdas_dict[clus]
@@ -378,16 +493,15 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     for i in range(len(lambdas)):
         l = lambdas[i]
         im_ind = indices[i]
-        im = names_and_data[i][1]
+        im = names_and_data[im_ind][1]
         img += l*im
 
     img = scale01(img)
 
-    plt.imshow(img, cmap='Greys', interpolation='nearest')
+    plt.imshow(img, cmap='greys', interpolation='nearest')
     plt.colorbar()
     plt.savefig(save_name)
     plt.clf()
-
 
 
 
@@ -395,8 +509,8 @@ if __name__ == "__main__":
     #"""
     s = time.time()
     cap=10000
-    eval_clustering(cap=cap, simple_avg=True, with_noise=True, n_cs=17+1, 
-                    noise_type='repl', my_gamma = 50.0)
+    eval_clustering(cap=cap, simple_avg=True, with_noise=True, n_cs=17, 
+                    only_states=True, noise_type='repl', my_gamma = 15.0)
     e = time.time()
     print("Time taken for cap = %d: "%cap, e - s)
     
@@ -405,4 +519,15 @@ if __name__ == "__main__":
     #"""
     #aff = load_affinity_matrix()
     #print(aff.shape)
-    #preview_df()
+    """
+    cap=10000
+    data_arr_path = my_vars.rawArraysF
+    with_noise=True
+    noise_type='repl'
+    names_and_data = load_data(data_arr_path, cap=cap, 
+                               with_noise=with_noise, noise_type=noise_type)
+    vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True, \
+                            load_folder=my_vars.picklesDataPath, print_it=True)
+    """
+    #counts_in_states()
+    #lmd_dict_vs_all_clus()

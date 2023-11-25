@@ -486,6 +486,7 @@ def save_affinity_matrix(batch_size=5000, gamma=jnp.array([1.0]), n_imgs=10000,
 # What is an elegant way to make the clusters name invarient #
 ##############################################################
 
+
 #@jax.jit Maybe jitable but need to find workaround for .count
 def clustering_to_cachable_labels(clusters, n_clusters):
     """
@@ -609,10 +610,7 @@ def simple_avg_metric(relevant_images, metric=DEFAULT_METRIC):
     # Set Lambdas as uniform.
     lambdas = jnp.full( len(relevant_images), 1/len(relevant_images) )
     mini_d['x'] = lambdas
-    s = time.time()
     combo = jnp.array([lambdas[i]*relevant_images[i] for i in range(len(lambdas))])
-    e = time.time()
-    print("Sum Time: ", e - s)
     comboImg = jnp.sum(combo, axis=0) 
     metric_value = metric(comboImg)
     mini_d['fun'] = metric_value
