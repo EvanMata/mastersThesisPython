@@ -269,7 +269,7 @@ def multi_eval_clus_compare(gammas=[0.001, 0.01, 0.05, 0.25, 1, 4, 20],
             rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
 
             df.loc[len(df.index)] = [g, n_c, True, metric_val, rand_s]
-            df.to_pickle("Clustering_Comparions.pickle")
+            df.to_pickle("Clustering_Comparisons.pickle")
             i += 1
             print(df.head(i))
 
@@ -543,7 +543,8 @@ def vis_sum_noise(noise_path=my_vars.rawNoiseF):
 
 
 def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data, 
-             only_states, save_folder=my_vars.stateImgsP, array_shape=(120,120)):
+             only_states, save_folder=my_vars.stateImgsP, 
+             array_shape=(120,120), is_best=False):
     """
     Saves an image of the cluster to the given save folder
     """
@@ -556,6 +557,8 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
         name_add += "_OS"
     if simple_avg:
         name_add += "_simple"
+    if is_best:
+        name_add += "_best"
     new_dir = new_dir.joinpath(name_add)
     Path(str(new_dir)).mkdir(parents=True, exist_ok=True)
     
@@ -580,9 +583,63 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     plt.clf()
 
 
+def algo_p1(n_cs = 18, only_pure_states=True):
+    """
+    Runs part 1 of my optimization algorithm, 
+    """
+    cap = 10000
+    with_noise = True
+    noise_type = 'repl'
+    data_arr_path = my_vars.rawArraysF
+    names_and_data = load_data(data_arr_path, cap=cap, 
+                               with_noise=with_noise, noise_type=noise_type)
+    aff_mat = load_affinity_matrix()
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
+    if only_pure_states:
+        names_and_data = pure_states_only(names_and_data, good_indices)
+        aff_mat = pure_aff_only(aff_mat, good_indices)
+    opti.gamma_tuning_simple_avg(n_cs, names_and_data, aff_mat, only_pure_states)
+
+
+def algo_p2(n_cs, gamma, only_states=True):
+    cap = 10000
+    with_noise = True
+    noise_type = 'repl'
+    data_arr_path = my_vars.rawArraysF
+    save_folder = my_vars.picklesDataPath
+    digit3_gamma = '{0:.3f}'.format(float(gamma))
+    digit3_gamma = digit3_gamma.replace('.', "-")
+
+    names_and_data = load_data(data_arr_path, cap=cap, 
+                               with_noise=with_noise, noise_type=noise_type)
+    aff_mat = load_affinity_matrix()
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
+    if only_states:
+        names_and_data = pure_states_only(names_and_data, good_indices)
+        aff_mat = pure_aff_only(aff_mat, good_indices)
+    metric_val, lambdas_dict = opti.get_info(gamma, \
+            names_and_data, n_cs, simple_avg=False, premade_affinity_matrix=aff_mat)
+    
+    lmd_name = "best_lambdas_d_gamma_%s.pickle"%digit3_gamma
+    met_name = "best_metric_gamma_%s.pickle"%digit3_gamma
+
+    lmd_name = str(save_folder.joinpath(lmd_name))
+    met_name = str(save_folder.joinpath(met_name))
+
+    with open(lmd_name, 'wb') as handle:
+        pickle.dump(lambdas_dict, handle)
+
+    with open(met_name, 'wb') as handle:
+        pickle.dump(metric_val, handle)
+
+    for clus, info in lambdas_dict.items():
+        vis_clus(gamma, clus, lambdas_dict, False, names_and_data, only_states,
+             save_folder=my_vars.stateImgsP, array_shape=(120,120), is_best=True)
+
+
 
 if __name__ == "__main__":
-    multi_eval_clus_compare()
+    #multi_eval_clus_compare()
     """
     s = time.time()
     cap=10000
@@ -608,3 +665,5 @@ if __name__ == "__main__":
     """
     #counts_in_states()
     #lmd_dict_vs_all_clus()
+    algo_p1(n_cs = 18)
+    

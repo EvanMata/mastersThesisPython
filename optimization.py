@@ -83,11 +83,11 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
                                                         n_clusters=n_cs, simple_avg=simple_avg,
                                                         premade_affinity_matrix=premade_affinity_matrix)
     
-    print("Gamma: ", my_gamma)
-    print("Metric Value: ", metric_val)
-    print("Lambdas: ")
-    print(lambdas_dict)
-    print()
+    #print("Gamma: ", my_gamma)
+    #print("Metric Value: ", metric_val)
+    #print("Lambdas: ")
+    #print(lambdas_dict)
+    #print()
     
     return metric_val
 
@@ -127,6 +127,7 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
     """
     Tunes the gamma used in my clustering.
     """
+    
     fun = basic_ex
     init_guess = jnp.array([1.0])
     arguements = (use_new_data, n_cs, arraysPerCluster, my_method, \
@@ -140,6 +141,35 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
     print("Optimal Alpha Value was: ", gamma_value)
     total_time = e - s
     print("Total Time: ", total_time)
+
+
+def gamma_tuning_simple_avg(n_cs, provided_data, premade_affinity_matrix,
+                            only_pure_states):
+    """
+    Using simple averaging, tunes my affinity matrix by gamma parameterization.
+    """
+    
+    fun = basic_ex
+    init_guess = jnp.array([1.0])
+    arguements = (False, n_cs, 3, "BFGS", provided_data, False, premade_affinity_matrix)
+    s = time.time()
+    minResults = min2(fun=fun, x0 = init_guess,
+                            method="BFGS", args=arguements)
+    e = time.time()
+    min_metric_value = minResults.fun
+    gamma_value = minResults.x
+    print("Optimal Gamma Value was: ", gamma_value)
+    total_time = e - s
+    print("Total Time: ", total_time)
+
+    save_folder = var_names.picklesDataPath
+    pickle_save_name = str(int(n_cs))+"_optimized_gamma"
+    if only_pure_states:
+        pickle_save_name += "_OS"
+    pickle_save_name += ".pickle"
+    save_name = str(save_folder.joinpath(pickle_save_name))
+    with open(save_name, 'wb') as handle:
+        pickle.dump(gamma_value, handle)
 
 
 def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, 
@@ -319,7 +349,7 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
                           between imgs i and j
     """
     digit3_gamma = '{0:.3f}'.format(float(gamma))
-    digit3_gamma = digit3_gamma.replace('.', "_")
+    digit3_gamma = digit3_gamma.replace('.', "-")
     affinity_mat_save_name = str(save_folder.joinpath(\
                                 "Affinity_Mat_gamma_%s"%digit3_gamma))
     arr_of_imgs = jnp.array(arr_of_imgs)
