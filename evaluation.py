@@ -11,9 +11,11 @@ import numpy as np
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
+import my_metric as my_metric
 import optimization as opti
 import pathlib_variable_names as my_vars
 
+from pathlib import Path
 from itertools import product
 from functools import partial
 from collections import defaultdict
@@ -224,7 +226,7 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
     return 
 
 
-def multi_eval_clus_compare(gammas=[0.01, 0.05, 0.25, 1, 4, 20, 100], 
+def multi_eval_clus_compare(gammas=[0.001, 0.01, 0.05, 0.25, 1, 4, 20], 
                             n_cs=[17, 18, 19, 20, 21, 22], 
                             n_cs_os=[17, 18, 19, 20]):
     """
@@ -267,13 +269,9 @@ def multi_eval_clus_compare(gammas=[0.01, 0.05, 0.25, 1, 4, 20, 100],
             rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
 
             df.loc[len(df.index)] = [g, n_c, True, metric_val, rand_s]
-            df.to_pickle("Clustering_Comparions")
+            df.to_pickle("Clustering_Comparions.pickle")
             i += 1
             print(df.head(i))
-
-            print("Gamma: %f, Num Clus: %d, Rand Score: %f"%(g, n_c, rand_s))
-            print("Metric: %f"%metric_val)
-            print()
 
     print()
     print()
@@ -295,13 +293,10 @@ def multi_eval_clus_compare(gammas=[0.01, 0.05, 0.25, 1, 4, 20, 100],
             rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
 
             df.loc[len(df.index)] = [g, n_c, False, metric_val, rand_s]
-            df.to_pickle("Clustering_Comparions")
+            df.to_pickle("Clustering_Comparions.pickle")
             i += 1
             print(df.head(i))
 
-            print("Gamma: %f, Num Clus: %d, Rand Score: %f"%(g, n_c, rand_s))
-            print("Metric: %f"%metric_val)
-            print()
 
 def pure_aff_only(aff_mat, good_indices):
     # Gets a principle submatrix including only good_indices rows & cols
@@ -441,13 +436,8 @@ def lmd_dict_vs_all_clus(my_gamma=50.0, load_folder=my_vars.picklesDataPath, cap
 
 
 @jax.jit
-def scale01(x):
-    return (x-jnp.min(x))/(jnp.max(x)-jnp.min(x))
-
-
-@jax.jit
 def combine_signal_noise_mult(signal_arr, noise_arr):
-    scaled_noise_arr = scale01(noise_arr)
+    scaled_noise_arr = my_metric.scale01(noise_arr)
     signal_arr = signal_arr - 0.5
     composite_arr = signal_arr*scaled_noise_arr
     composite_arr = composite_arr + 0.5 #Back to [0,1] in theory
@@ -469,7 +459,7 @@ def combine_signal_noise_repl(c_key, signal_arr, noise_arr, repl_perc=0.25,
         jnp.arange(signal_arr.shape[0]), jnp.arange(signal_arr.shape[1]))))
     
     xs_sub, ys_sub = zip(*xy_inds[chosen_indices])
-    scaled_noise_arr = scale01(noise_arr)
+    scaled_noise_arr = my_metric.scale01(noise_arr)
     #combined_arr = repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub)
     combined_arr = repl_arr2(signal_arr, scaled_noise_arr, xs_sub, ys_sub, bottom, top)
     return n_key, combined_arr
@@ -558,12 +548,19 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     Saves an image of the cluster to the given save folder
     """
     digit3_gamma = '{0:.3f}'.format(float(gamma))
-    digit3_gamma = digit3_gamma.replace('.', "_")
-    save_name = my_vars.stateImgsP%(clus, digit3_gamma)
-    if simple_avg:
-        save_name += "_simple"
+    digit3_gamma = digit3_gamma.replace('.', "-")
+    new_dir = my_vars.stateImsF
+    num_clus = sum([1 for k,v in lambdas_dict.items()])
+    name_add = str(int(num_clus))+"clus_" + "gamma" + digit3_gamma
     if only_states:
-        save_name += "_only_states"
+        name_add += "_OS"
+    if simple_avg:
+        name_add += "_simple"
+    new_dir = new_dir.joinpath(name_add)
+    Path(str(new_dir)).mkdir(parents=True, exist_ok=True)
+    
+    #save_name = my_vars.stateImgsP%(clus, digit3_gamma)
+    save_name = str(new_dir.joinpath( "state_%d" ))%(clus)
 
     img = jnp.zeros(array_shape)
     lambdas_and_indices = lambdas_dict[clus]
@@ -574,9 +571,10 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
         im = names_and_data[im_ind][1]
         img += l*im
 
-    img = scale01(img)
+    img = my_metric.clip_img(img)
+    img = my_metric.scale01(img)
 
-    plt.imshow(img, cmap='greys', interpolation='nearest')
+    plt.imshow(img, cmap='Greys_r', interpolation='nearest')
     plt.colorbar()
     plt.savefig(save_name)
     plt.clf()

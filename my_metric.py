@@ -4,6 +4,8 @@ File used for my metric of Total Variation Norm + Distance from pure color
 import jax
 import jax.numpy as jnp
 
+from functools import lru_cache, partial
+
 @jax.jit
 def scaledTotalVariation(scaledImg): 
     # Calculate the scaled total variation ( scaled to 0-1 )
@@ -70,12 +72,20 @@ def scale01(x):
     return (x-jnp.min(x))/(jnp.max(x)-jnp.min(x))
 
 
+@partial(jax.jit, static_argnames=['bot_perc', 'top_perc'])
+def clip_img(image, bot_perc=20, top_perc=80):
+    bot_val = jnp.percentile(image, bot_perc)
+    top_val = jnp.percentile(image, top_perc)
+    return jnp.clip(image, bot_val, top_val)
+
+
 def closest_sq_dist_tv_mix(image, lambdaVal=0.5): 
     """
     A convex combination of total variation and square distance from the closest domain/pureColor
     sTV >> dPC most of the time in the trivial example tested
     """
-    scaledImg = scale01(image)
+    cliped_img = clip_img(image)
+    scaledImg = scale01(cliped_img)
     sTV = scaledTotalVariation(scaledImg)
     dPC = distFromPureColor2(scaledImg)
     return lambdaVal*sTV + (1 - lambdaVal)*dPC

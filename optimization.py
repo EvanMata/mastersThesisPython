@@ -539,7 +539,7 @@ def clustering_to_cachable_labels(clusters, n_clusters):
 
 
 #@lru_cache # Possibly incompatible with jax???
-def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
+def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False, print_it=False):
     """
     Performs the convex combo minimization to find the convex combo params 
     and total metric value for a given clustering.
@@ -558,7 +558,8 @@ def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
         lamdbas_dict (dict) : dict of cluster_label: zip[(lambda_i, i of corresponding img), (), ...]
             Where img_i is in the given cluster
     """
-    print("Simple Avg: ", simple_avg)
+    if print_it:
+        print("Simple Avg: ", simple_avg)
     images = jnp.array(images_tup)
     lambdas_dict = dict()
     total_metric_value = jnp.array([0])
@@ -573,8 +574,10 @@ def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
             total_metric_value, lambdas_and_indices = min_simp_avg_metric_and_lambdas( \
                                     total_metric_value, relevant_image_indices, images)
             e = time.time()
-            print("Num pts in clus: ", len(relevant_image_indices))
-            print("Clus Done in: ", e - s)
+            if print_it:
+                print("Num pts in clus: ", len(relevant_image_indices))
+                print("Clus Done in: ", e - s)
+                print()
             
         else:
             s = time.time()
@@ -582,9 +585,10 @@ def calc_clusters_lambdas_cached(clusters, images_tup, simple_avg=False):
                                     total_metric_value, cluster_label, \
                                     relevant_image_indices, images)
             e = time.time()
-            print("Num pts in clus: ", len(relevant_image_indices))
-            print("Clus Done in: ", e - s)
-            print()
+            if print_it:
+                print("Num pts in clus: ", len(relevant_image_indices))
+                print("Clus Done in: ", e - s)
+                print()
             
         lambdas_dict[cluster_label] = lambdas_and_indices
     return total_metric_value, lambdas_dict
