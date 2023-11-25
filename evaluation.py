@@ -366,7 +366,9 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     """
     Saves an image of the cluster to the given save folder
     """
-    save_name = my_vars.stateImgsP%(clus, gamma)
+    digit3_gamma = '{0:.3f}'.format(float(gamma))
+    digit3_gamma = digit3_gamma.replace('.', "_")
+    save_name = my_vars.stateImgsP%(clus, digit3_gamma)
     if simple_avg:
         save_name += "_simple"
 
@@ -384,6 +386,7 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     plt.imshow(img, cmap='Greys', interpolation='nearest')
     plt.colorbar()
     plt.savefig(save_name)
+    plt.clf()
 
 
 

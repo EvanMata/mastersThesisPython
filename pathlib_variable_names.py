@@ -59,7 +59,7 @@ rawNoiseP = str(rawNoiseF.joinpath( "noise_array_frame_%d" ))
 replNoiseF = imagesPath.joinpath( "replacedNoise" )
 replNoiseP = str(replNoiseF.joinpath( "noise_array_frame_%d" ))
 stateImsF = imagesPath.joinpath( "stateImgs" )
-stateImgsP = str(stateImsF.joinpath( "state_%d_gamma_%f" ))
+stateImgsP = str(stateImsF.joinpath( "state_%d_gamma_%s" ))
 
 '''
 Paths for the SMALL sample folders
