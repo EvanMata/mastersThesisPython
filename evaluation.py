@@ -666,4 +666,5 @@ if __name__ == "__main__":
     #counts_in_states()
     #lmd_dict_vs_all_clus()
     algo_p1(n_cs = 18)
+    #algo_p2(n_cs=18, gamma=0.25, only_states=True)
     

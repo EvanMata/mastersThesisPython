@@ -154,7 +154,8 @@ def gamma_tuning_simple_avg(n_cs, provided_data, premade_affinity_matrix,
     arguements = (False, n_cs, 3, "BFGS", provided_data, False, premade_affinity_matrix)
     s = time.time()
     minResults = min2(fun=fun, x0 = init_guess,
-                            method="BFGS", args=arguements)
+                            method="BFGS", args=arguements, 
+                            options={'return_all':True})
     e = time.time()
     min_metric_value = minResults.fun
     gamma_value = minResults.x
@@ -170,6 +171,14 @@ def gamma_tuning_simple_avg(n_cs, provided_data, premade_affinity_matrix,
     save_name = str(save_folder.joinpath(pickle_save_name))
     with open(save_name, 'wb') as handle:
         pickle.dump(gamma_value, handle)
+
+    pickle_save_name2 = "min_results_" + str(int(n_cs))
+    if only_pure_states:
+        pickle_save_name2 += "_OS"
+    pickle_save_name2 += ".pickle"
+    save_name2 = str(save_folder.joinpath(pickle_save_name2))
+    with open(save_name2, 'wb') as handle:
+        pickle.dump(minResults, handle)
 
 
 def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, 
