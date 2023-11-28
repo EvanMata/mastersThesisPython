@@ -89,6 +89,9 @@ def basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver
     #print(lambdas_dict)
     #print()
     
+    metric_val = float(metric_val)
+    print(metric_val)
+
     return metric_val
 
 
@@ -144,7 +147,7 @@ def gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BF
 
 
 def gamma_tuning_simple_avg(n_cs, provided_data, premade_affinity_matrix,
-                            only_pure_states):
+                            only_pure_states, save_items=False):
     """
     Using simple averaging, tunes my affinity matrix by gamma parameterization.
     """
@@ -169,16 +172,18 @@ def gamma_tuning_simple_avg(n_cs, provided_data, premade_affinity_matrix,
         pickle_save_name += "_OS"
     pickle_save_name += ".pickle"
     save_name = str(save_folder.joinpath(pickle_save_name))
-    with open(save_name, 'wb') as handle:
-        pickle.dump(gamma_value, handle)
+    if save_items:
+        with open(save_name, 'wb') as handle:
+            pickle.dump(gamma_value, handle)
 
     pickle_save_name2 = "min_results_" + str(int(n_cs))
     if only_pure_states:
         pickle_save_name2 += "_OS"
     pickle_save_name2 += ".pickle"
     save_name2 = str(save_folder.joinpath(pickle_save_name2))
-    with open(save_name2, 'wb') as handle:
-        pickle.dump(minResults, handle)
+    if save_items:
+        with open(save_name2, 'wb') as handle:
+            pickle.dump(minResults, handle)
 
 
 def const_gamma_clustering(gamma, images_tup, n_clusters, simple_avg=False, 
@@ -338,8 +343,9 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
                       pair_affinity_func=calcPairAffinity2, 
                       pair_affinity_parallel_axes=(0, 0, None, None),
                       batch_size=5000, print_progress=True, 
-                      pickup=True, pickup_loc=49980000, 
-                      save_folder=var_names.affinitiesPath):
+                      pickup=False, pickup_loc=49980000, 
+                      save_folder=var_names.affinitiesPath,
+                      save_items=False):
     """
     Creates my affininty matrix, v-mapped.
 
@@ -397,7 +403,8 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
             last_b_arr = jnp.array(last_batch)
             affinities_save_name = str(save_folder.joinpath( \
                                     "Affinity_b_%d_gamma_%s"%(i, digit3_gamma)))
-            jnp.save(affinities_save_name, last_b_arr)
+            if save_items:
+                jnp.save(affinities_save_name, last_b_arr)
             last_batch = []
             start = i - batch_size + 1
             batch_inds = (triu_1[start:i+1], triu_2[start:i+1])
@@ -408,8 +415,8 @@ def affinity_matrix3(arr_of_imgs, gamma=jnp.array([1.0]), \
     arr = arr + jnp.identity(n_imgs, dtype=jnp.float16)
 
     print("Affinites Matrix shape: ", arr.shape)
-
-    jnp.save(affinity_mat_save_name, arr)
+    if save_items:
+        jnp.save(affinity_mat_save_name, arr)
     print()
     print("VMAP WORKED")
     print()
@@ -786,5 +793,5 @@ def usage():
 
 if __name__ == "__main__":
     # gamma_tuning_ex(use_new_data=True, n_cs=5, arraysPerCluster=3, my_method="BFGS")
-    # basic_ex(my_gamma=0.1, use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
-    save_affinity_matrix()
+    basic_ex(my_gamma=jnp.array([0.1]), use_new_data=True, n_cs=5, arraysPerCluster=3, solver="BFGS")
+    #save_affinity_matrix()

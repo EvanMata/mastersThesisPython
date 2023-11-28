@@ -150,7 +150,7 @@ def counts_in_states(data_name="my_data.pkl", load_folder=my_vars.picklesDataPat
 
 def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True, 
                     with_noise=True, noise_type='repl', simple_avg=False, 
-                    only_states=False,
+                    only_states=False, is_best=False,
                     data_arr_path=my_vars.rawArraysF,
                     save_folder=my_vars.picklesDataPath):
     """
@@ -171,6 +171,10 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
 
     lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
     met_name = "metric_gamma_%f.pickle"%my_gamma
+
+    if is_best:
+        lmd_name = "Best_" + lmd_name
+        met_name = "Best_" + met_name
 
     lmd_name = str(save_folder.joinpath(lmd_name))
     met_name = str(save_folder.joinpath(met_name))
@@ -204,7 +208,7 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
 
     for clus, info in lambdas_dict.items():
         vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, only_states,
-             save_folder=my_vars.stateImgsP, array_shape=(120,120))
+             save_folder=my_vars.stateImsP, array_shape=(120,120), is_best=is_best)
 
     if print_it:
         print("GAMMA: ")
@@ -266,7 +270,7 @@ def multi_eval_clus_compare(gammas=[0.001, 0.01, 0.05, 0.25, 1, 4, 20],
                 metric_val, lambdas_dict = opti.get_info(g, names_and_data_os, n_c, True, aff_mat_os)
                 for clus, info in lambdas_dict.items():
                     vis_clus(g, clus, lambdas_dict, True, names_and_data, True, 
-                        save_folder=my_vars.stateImgsP, array_shape=(120,120))
+                        save_folder=my_vars.stateImsP, array_shape=(120,120))
                     
                 calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
 
@@ -380,7 +384,7 @@ def vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True,
 
     for clus, info in lambdas_dict.items():
         vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, 
-             save_folder=my_vars.stateImgsP, array_shape=(120,120))
+             save_folder=my_vars.stateImsP, array_shape=(120,120))
 
 
 def load_data(data_arr_path=my_vars.rawArraysF, dtype=jnp.float16, cap=10000,
@@ -488,6 +492,9 @@ def repl_arr(signal_arr, scaled_noise_arr, xs_sub, ys_sub):
 
 
 def repl_arr2(signal_arr, scaled_noise_arr, xs_sub, ys_sub, bottom, top):
+    """
+    Replace portions of the array w. 0 and 1.
+    """
     signal_arr, scaled_noise_arr, xs_sub, ys_sub = \
         np.array(signal_arr), np.array(scaled_noise_arr), xs_sub, ys_sub
     scaled_noise_arr[xs_sub, ys_sub] = signal_arr[xs_sub, ys_sub]
@@ -559,7 +566,7 @@ def vis_sum_noise(noise_path=my_vars.rawNoiseF):
 
 
 def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data, 
-             only_states, save_folder=my_vars.stateImgsP, 
+             only_states, save_folder=my_vars.stateImsP, 
              array_shape=(120,120), is_best=False):
     """
     Saves an image of the cluster to the given save folder
@@ -578,7 +585,7 @@ def vis_clus(gamma, clus, lambdas_dict, simple_avg, names_and_data,
     new_dir = new_dir.joinpath(name_add)
     Path(str(new_dir)).mkdir(parents=True, exist_ok=True)
     
-    #save_name = my_vars.stateImgsP%(clus, digit3_gamma)
+    #save_name = my_vars.stateImsP%(clus, digit3_gamma)
     save_name = str(new_dir.joinpath( "state_%d" ))%(clus)
 
     img = jnp.zeros(array_shape)
@@ -607,6 +614,7 @@ def algo_p1(n_cs = 18, only_pure_states=True):
     with_noise = True
     noise_type = 'repl'
     data_arr_path = my_vars.rawArraysF
+
     names_and_data = load_data(data_arr_path, cap=cap, 
                                with_noise=with_noise, noise_type=noise_type)
     aff_mat = load_affinity_matrix()
@@ -614,6 +622,7 @@ def algo_p1(n_cs = 18, only_pure_states=True):
     if only_pure_states:
         names_and_data = pure_states_only(names_and_data, good_indices)
         aff_mat = pure_aff_only(aff_mat, good_indices)
+
     opti.gamma_tuning_simple_avg(n_cs, names_and_data, aff_mat, only_pure_states)
 
 
@@ -633,9 +642,10 @@ def algo_p2(n_cs, gamma, only_states=True):
     if only_states:
         names_and_data = pure_states_only(names_and_data, good_indices)
         aff_mat = pure_aff_only(aff_mat, good_indices)
+
     metric_val, lambdas_dict = opti.get_info(gamma, \
             names_and_data, n_cs, simple_avg=False, premade_affinity_matrix=aff_mat)
-    
+
     lmd_name = "best_lambdas_d_gamma_%s.pickle"%digit3_gamma
     met_name = "best_metric_gamma_%s.pickle"%digit3_gamma
 
@@ -650,8 +660,84 @@ def algo_p2(n_cs, gamma, only_states=True):
 
     for clus, info in lambdas_dict.items():
         vis_clus(gamma, clus, lambdas_dict, False, names_and_data, only_states,
-             save_folder=my_vars.stateImgsP, array_shape=(120,120), is_best=True)
+             save_folder=my_vars.stateImsP, array_shape=(120,120), is_best=True)
 
+
+def noise_combine_visual(noise_path=my_vars.rawNoiseF, data_arr_path=my_vars.rawArraysF, 
+                         frame_num=3067):
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    
+
+    #Load Noisy Frame
+    my_noises = os.listdir(noise_path)
+    n_frame = my_noises[frame_num]
+    full_n = noise_path.joinpath( n_frame )
+    noise_arr = jnp.load( full_n )
+
+    #Load Reg arr
+    my_arrs = os.listdir(data_arr_path)
+    #for i, a in enumerate(my_arrs):
+    #    print(i, a)
+    f = my_arrs[230] #Didn't copy all frames to this computer
+    full_f = data_arr_path.joinpath( f )
+    arr = jnp.load( full_f )
+    arr = jnp.array(arr, dtype=jnp.float16)
+
+    #Load Combination
+    combo_name = my_vars.replNoiseP%frame_num + ".npy"
+    combo = jnp.load(combo_name)
+
+    fig, axs = plt.subplots(1,3)
+    axs[0].imshow(noise_arr, cmap='hot', interpolation='nearest')
+    #im1 = axs[0].imshow(noise_rot, cmap='Greys_r', interpolation='nearest')
+    axs[0].set_title('Noise')
+    #cbar = fig.colorbar(im1, ax=axs[0])
+    im2 = axs[1].imshow(arr, cmap='Greys_r', interpolation='nearest')
+    #im2 = axs[1].imshow(f_noise_rot, cmap='Greys_r', interpolation='nearest')
+    axs[1].set_title('Signal')
+    im3 = axs[2].imshow(combo, cmap='Greys_r', interpolation='nearest')
+    axs[2].set_title('Combination')
+
+    divider = make_axes_locatable(axs[2])
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    #cbar = fig.colorbar(im3, ax=axs[2], fraction=0.05, pad=0.04)
+    cbar = fig.colorbar(im3, ax=axs[2], cax=cax)
+    plt.show()
+
+
+def get_mean_vals(data_name="my_data.pkl", load_folder=my_vars.picklesDataPath):
+    data_path = str(load_folder.joinpath(data_name))
+    df = pd.read_pickle(data_path)
+    sub_df = df[df['end state'] == df['start state']]
+    print("Total Counts of states: ")
+    print(df['end state'].value_counts())
+    print("Counts of number of frames IN each state")
+    print(sub_df['end state'].value_counts())
+
+    aff_mat = load_affinity_matrix()
+
+    unique_states = sub_df['end state'].unique()
+    means = []
+    stvs = []
+    for st in unique_states:
+        relevant_indices = sub_df.loc[sub_df['end state'] == st, 'j']
+        relevant_indices = list(relevant_indices)
+        submatrix_aff = np.array(pure_aff_only(aff_mat, relevant_indices), dtype=jnp.float64)
+        submatrix_aff = submatrix_aff.reshape(-1)
+        st_mean = np.mean(submatrix_aff)
+        st_stv = np.std(submatrix_aff)
+        means.append(st_mean)
+        stvs.append(st_stv)
+        print("State %d has mean %f and stv %f"%(st, st_mean, st_stv))
+        print()
+
+    means = np.array(means).reshape(-1)
+    mean_o_means = np.mean(means)
+    avg_stv = np.mean(np.array(stvs).reshape(-1))
+    aff_mean = np.mean(aff_mat.reshape(-1), dtype=jnp.float64)
+    aff_stv = np.std(aff_mat.reshape(-1))
+    print("Mean of Clu Means is %f, Mean of Clu Stvs is %f"%(mean_o_means, avg_stv))
+    print("Mean of entire aff is %f and stv is %f"%(aff_mean, aff_stv))
 
 
 if __name__ == "__main__":
@@ -683,6 +769,13 @@ if __name__ == "__main__":
     #lmd_dict_vs_all_clus()
     #algo_p1(n_cs = 18)
     #algo_p2(n_cs=18, gamma=0.25, only_states=True)
+    #noise_combine_visual()
+    #get_mean_vals(data_name="my_data.pkl", load_folder=my_vars.picklesDataPath)
+    eval_clustering(my_gamma = 1.0, n_cs = 20, cap=10000, print_it=True, 
+                    with_noise=True, noise_type='repl', simple_avg=False, 
+                    only_states=True, is_best=True,
+                    data_arr_path=my_vars.rawArraysF,
+                    save_folder=my_vars.picklesDataPath)
     multi_eval_clus_compare(gammas=[0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,\
         0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09, \
         0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9, 1,2,3,4,5,6,7,8,9,10], 
