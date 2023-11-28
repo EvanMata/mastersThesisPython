@@ -32,8 +32,8 @@ def format_nice(lambdas_dict):
         lambdas_dict (dict) : dict of cluster num: [(img lambda, img num), (), ...]
     Returns:
     --------
-        clustering (lst) : List of [cluster j of pt i for i in all imgs]
-        calc_lambdas (lst) : List of [Lambda j of pt i for i in all imgs]
+        clustering (lst) : List of [cluster of pt i for i in all imgs]
+        calc_lambdas (lst) : List of [Lambda of pt i for i in all imgs]
         cluster_pts (dict) : dict of cluster number to lst pts in that cluster,
                              lst indexed the same as that in cluster_lambdas
         cluster_lambdas (dict) : dict of cluster number to lst of pt lambdas 
@@ -740,6 +740,65 @@ def get_mean_vals(data_name="my_data.pkl", load_folder=my_vars.picklesDataPath):
     print("Mean of entire aff is %f and stv is %f"%(aff_mean, aff_stv))
 
 
+def graph_of_transitory_vs_lamdba(lambdas_dict, save=True):
+    good_indices, close_indices, transitory_indices, end_states = \
+        find_useful_indices(data_name="my_data.pkl", thresh=0.8, follow_up=3, n_orbs=16, cap=10000,
+                        load_folder=my_vars.picklesDataPath)
+    decent_indices = good_indices + close_indices
+    good_bad_vals = [1 if i in decent_indices else 0 for i in range(10000)]
+    
+    calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+    loged_lambdas = jnp.log(jnp.array(calc_lambdas))
+    lambdas_01 = my_metric.scale01(loged_lambdas)
+    bin_size=20
+
+    
+    fig, ax1 = plt.subplots()
+
+    color = 'tab:red'
+    ax1.set_xlabel('Frame Bins of width %d'%bin_size)
+    ax1.set_ylabel('State is Non-Transitory', color=color)
+    binned_good_bads = bin_data(good_bad_vals, bin_size, round_it=True)
+    ax1.plot(range(500), binned_good_bads, color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+
+    color = 'tab:blue'
+    ax2.set_ylabel('Log Of Lambda', color=color)  # we already handled the x-label with ax1
+    binned_good_bads = bin_data(loged_lambdas, bin_size, round_it=False)
+    ax2.plot(range(500), binned_good_bads, color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    plt.title("Log Lambdas vs Transitory Frames")
+    if save:
+        plt.savefig("Lambdas Vs Transitory")
+    else:
+        plt.show()
+
+    print("Correlation Coef: ", jnp.corrcoef(jnp.array(good_bad_vals), \
+                                             jnp.array(loged_lambdas)))
+
+  
+def bin_data(data, bin_size, round_it=False):
+    binned = []
+    for i in range(0, len(data), bin_size):
+        sub_arr = data[i:i+bin_size]
+        m = jnp.mean(jnp.array(sub_arr))
+        if round_it:
+            m = int(jnp.round(m))
+        binned.append(m)
+    return binned
+
+
+def load_lmds_d(f_name="lambdas_d_gamma_50-000.pickle", f_dir=my_vars.picklesDataPath):
+    f_path = f_dir.joinpath(f_name)
+    with open(f_path, 'rb') as f:
+        lmds_d = pickle.load(f)
+    return lmds_d
+
+
 if __name__ == "__main__":
     #multi_eval_clus_compare()
     """
@@ -771,6 +830,7 @@ if __name__ == "__main__":
     #algo_p2(n_cs=18, gamma=0.25, only_states=True)
     #noise_combine_visual()
     #get_mean_vals(data_name="my_data.pkl", load_folder=my_vars.picklesDataPath)
+    """
     eval_clustering(my_gamma = 1.0, n_cs = 20, cap=10000, print_it=True, 
                     with_noise=True, noise_type='repl', simple_avg=False, 
                     only_states=True, is_best=True,
@@ -782,3 +842,6 @@ if __name__ == "__main__":
                             n_cs=[19, 20, 21, 22], 
                             n_cs_os=[],
                             only_os=False, load_prev=True)
+    """
+    lamds_d = load_lmds_d()
+    graph_of_transitory_vs_lamdba(lamds_d, save=False)
