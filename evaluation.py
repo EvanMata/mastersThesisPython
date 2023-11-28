@@ -228,7 +228,8 @@ def eval_clustering(my_gamma = 1.0, n_cs = 17, cap=10000, print_it=True,
 
 def multi_eval_clus_compare(gammas=[0.001, 0.01, 0.05, 0.25, 1, 4, 20], 
                             n_cs=[17, 18, 19, 20, 21, 22], 
-                            n_cs_os=[17, 18, 19, 20]):
+                            n_cs_os=[17, 18, 19, 20],
+                            only_os=False, load_prev=False):
     """
     Compare multiple clusterings all at once.
     """
@@ -238,7 +239,10 @@ def multi_eval_clus_compare(gammas=[0.001, 0.01, 0.05, 0.25, 1, 4, 20],
     noise_type='repl'
     cap=10000
 
-    df = pd.DataFrame(columns=['Gamma', 'Num Clusters', 'Only States', 'Metric', 'Rand Score'])
+    if load_prev:
+        df = load_comparisons()
+    else:
+        df = pd.DataFrame(columns=['Gamma', 'Num Clusters', 'Only States', 'Metric', 'Rand Score'])
 
     names_and_data = load_data(data_arr_path, cap=cap, 
                                with_noise=with_noise, noise_type=noise_type)
@@ -257,45 +261,57 @@ def multi_eval_clus_compare(gammas=[0.001, 0.01, 0.05, 0.25, 1, 4, 20],
     i = 0
     for n_c in n_cs_os:
         for g in gammas:
-            metric_val, lambdas_dict = opti.get_info(g, names_and_data_os, n_c, True, aff_mat_os)
-            for clus, info in lambdas_dict.items():
-                vis_clus(g, clus, lambdas_dict, True, names_and_data, True, 
-                    save_folder=my_vars.stateImgsP, array_shape=(120,120))
-                
-            calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+            mask = (df['Gamma']==g) & (df['Num Clusters'] == n_c) & (df['Only States'] == True)
+            if mask.sum() == 0:
+                metric_val, lambdas_dict = opti.get_info(g, names_and_data_os, n_c, True, aff_mat_os)
+                for clus, info in lambdas_dict.items():
+                    vis_clus(g, clus, lambdas_dict, True, names_and_data, True, 
+                        save_folder=my_vars.stateImgsP, array_shape=(120,120))
+                    
+                calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
 
-            t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
-            c_clus_goods = calc_clusters
-            rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
+                t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
+                c_clus_goods = calc_clusters
+                rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
 
-            df.loc[len(df.index)] = [g, n_c, True, metric_val, rand_s]
-            df.to_pickle("Clustering_Comparisons.pickle")
-            i += 1
-            print(df.head(i))
+                df.loc[len(df.index)] = [g, n_c, True, metric_val, rand_s]
+                df.to_pickle("Clustering_Comparisons3.pickle")
+                i += 1
+                print(df.head(i))
 
-    print()
-    print()
-    print("INCLUDING TRANSITORY")
-    print()
-    print()
+    if not only_os:
+        print()
+        print()
+        print("INCLUDING TRANSITORY")
+        print()
+        print()
 
-    for n_c in n_cs:
-        for g in gammas:
-            metric_val, lambdas_dict = opti.get_info(g, names_and_data, n_c, True, aff_mat)
-            for clus, info in lambdas_dict.items():
-                vis_clus(g, clus, lambdas_dict, True, names_and_data, False, 
-                    save_folder=my_vars.stateImgsP, array_shape=(120,120))
-                
-            calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+        for n_c in n_cs:
+            for g in gammas:
+                mask = (df['Gamma']==g) & (df['Num Clusters'] == n_c) & (df['Only States'] == False)
+                if mask.sum() == 0:
+                    metric_val, lambdas_dict = opti.get_info(g, names_and_data, n_c, True, aff_mat)
+                    for clus, info in lambdas_dict.items():
+                        vis_clus(g, clus, lambdas_dict, True, names_and_data, False, 
+                            save_folder=my_vars.stateImgsP, array_shape=(120,120))
+                        
+                    calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
 
-            t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
-            c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
-            rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
+                    t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
+                    c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
+                    rand_s = adjusted_rand_score(t_clus_goods, c_clus_goods)
 
-            df.loc[len(df.index)] = [g, n_c, False, metric_val, rand_s]
-            df.to_pickle("Clustering_Comparions.pickle")
-            i += 1
-            print(df.head(i))
+                    df.loc[len(df.index)] = [g, n_c, False, metric_val, rand_s]
+                    df.to_pickle("Clustering_Comparisons3.pickle")
+                    i += 1
+                    print(df.head(i))
+
+
+def load_comparisons(f_name="Clustering_Comparions2.pickle", folder=my_vars.picklesDataPath):
+    f = folder.joinpath(f_name)
+    with open(f, 'rb') as my_f:
+        df = pickle.load(my_f)
+    return df
 
 
 def pure_aff_only(aff_mat, good_indices):
@@ -665,6 +681,11 @@ if __name__ == "__main__":
     """
     #counts_in_states()
     #lmd_dict_vs_all_clus()
-    algo_p1(n_cs = 18)
+    #algo_p1(n_cs = 18)
     #algo_p2(n_cs=18, gamma=0.25, only_states=True)
-    
+    multi_eval_clus_compare(gammas=[0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,\
+        0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09, \
+        0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9, 1,2,3,4,5,6,7,8,9,10], 
+                            n_cs=[19, 20, 21, 22], 
+                            n_cs_os=[],
+                            only_os=False, load_prev=True)
