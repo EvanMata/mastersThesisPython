@@ -556,6 +556,14 @@ def vis_graph2(adj_mat):
     plt.show()
 
 
+def open_graph(f_name='Graph.pickle', pickles_dir=my_vars.picklesDataPath):
+    path = pickles_dir.joinpath(f_name)
+    with open(path, 'rb') as f:
+        G = pickle.load(f)
+    return G
+
+
+
 ##############
 # Move 1 Orb #
 ##############
@@ -873,6 +881,29 @@ def noise_visual():
     plt.show()
 
 
+def noise_visual2():
+    """
+    Creates my visual comparing my rotation to regular noise items
+    """
+    xmin, xmax, ymin, ymax = 0, 20, 20, 0 
+    array_shape = (120,120)
+    noise_rot, f_noise_rot, n_key = gen_low_freq_noise_rot(array_shape, MY_KEY, l_bd=-1, u_bd=1, 
+                       cutoff=0.025, r_cutoff=False, cutoff_bds=[0.02, 0.02])
+    
+    fig, axs = plt.subplots(1,2)
+    axs[0].imshow(noise_rot, cmap='hot', interpolation='nearest')
+    #im1 = axs[0].imshow(noise_rot, cmap='Greys_r', interpolation='nearest')
+    axs[0].set_title('Circle Noise')
+    #cbar = fig.colorbar(im1, ax=axs[0])
+    im2 = axs[1].imshow(f_noise_rot, cmap='hot', interpolation='nearest')
+    #im2 = axs[1].imshow(f_noise_rot, cmap='Greys_r', interpolation='nearest')
+    axs[1].set_title('Kept Fourier Space: Circle')
+    axs[1].set_xlim([xmin, xmax])
+    axs[1].set_ylim([ymin, ymax])
+    #cbar = fig.colorbar(im2, ax=axs[1])
+    plt.show()
+
+
 def prob_distro_vis(epsi=.8):
     """
     Visualizes the basic prob distro of a state moving towards a destination.
@@ -954,7 +985,7 @@ def visualize_states(c_key, states_folder=my_vars.stateImgsP, save=True, preload
     
     for state, expected_img in states_i.items():
         plt.imshow(expected_img, cmap='hot', interpolation='nearest')
-        plt.axis([0, array_shape[0], 0, array_shape[1]])
+        plt.axis([0, array_shape[0], array_shape[1], 0])
         plt.colorbar()
         fname = states_folder%state
         if save:
@@ -1656,37 +1687,10 @@ if __name__ == "__main__":
     
 
     #n_key, adj_mat, G = gen_graph(c_key=MY_KEY, n_states=20, p=0.1, self_loops=True)
-    #vis_graph(G)
+    G = open_graph(f_name='Graph.pickle', pickles_dir=my_vars.picklesDataPath)
+    vis_graph(G)
     #vis_graph2(adj_mat)
 
     #visualize_states(c_key=MY_KEY, states_folder=my_vars.stateImgsP, save=True, 
     #                 preload=True, n_states=30, array_shape = (120,120))
-    """
-    states_i, states_c, states_f, n_key = full_states_load(n_states=30)
-    for state, orb_d in states_c.items():
-        destinations = states_c[state]
-        orb_info_l = sorted([(orb, dest) for orb, dest in destinations.items()])
-        orb_diams = [(orb, dest[1][1]) for orb, dest in enumerate(orb_info_l)]
-        print(orb_diams)
-    #print(states_f)
-    """
-    """
-    full_states_save(c_key = MY_KEY, n_states = 30, array_shape = (120,120), 
-                    lb_orbs=16, ub_orbs=16, fix_avg=20, fix_stv=4, 
-                    fix_stv_stv=2, lb_size=15, ub_size=25, region_d=5,
-                    save_loc = my_vars.generatedDataPath, in_parts=True,
-                    part_step=2, load_prev=False, start_load=0)
-    """
-    #print(states_f)
-    #vis_state_trans2(n_states=30, st_st=1, st_end=2)
-    """
-    full_simulation(c_key=MY_KEY, n_states_to_use=20, n_states=30, 
-                    array_shape=(120,120), st_st = 0, 
-                    regen_stvs=True, tot_steps=10000, epsi=0.85, p=0.1,
-                    save_arrs=True, save_figs=True, lazy=True, 
-                    img_save_folder=my_vars.orbsToStateP, 
-                    arr_save_folder=my_vars.rawArraysP, 
-                    pickup=True)
-    """
-    gen_all_noise(c_key=MY_KEY, array_shape=(120,120), num=10300, \
-                  save_folder=my_vars.rawNoiseP, skipTo=9999)
+    #noise_visual2()
