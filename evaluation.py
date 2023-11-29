@@ -333,22 +333,29 @@ def pure_states_only(names_and_data, good_indices):
 
 
 def vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True, 
-                            load_folder=my_vars.picklesDataPath, print_it=True):
+                            load_folder=my_vars.picklesDataPath, print_it=True,
+                            is_best=False, only_states=False):
     """
     Same as vis_clus but loads in results and then calls it.
     """
 
-    lmd_name = "lambdas_d_gamma_%f.pickle"%my_gamma
-    met_name = "metric_gamma_%f.pickle"%my_gamma
+    digit3_gamma = '{0:.3f}'.format(float(my_gamma))
+    digit3_gamma = digit3_gamma.replace('.', "-")
+
+    lmd_name = "lambdas_d_gamma_%s.pickle"%digit3_gamma
+    #met_name = "metric_gamma_%s.pickle"%digit3_gamma
+    if is_best:
+        lmd_name = 'Best_' + lmd_name
+        #met_name = "Best_" + met_name
 
     lmd_name = str(load_folder.joinpath(lmd_name))
-    met_name = str(load_folder.joinpath(met_name))
+    #met_name = str(load_folder.joinpath(met_name))
 
     with open(lmd_name, 'rb') as handle:
         lambdas_dict = pickle.load(handle)
 
-    with open(met_name, 'rb') as handle:
-        metric_val = pickle.load(handle)
+    #with open(met_name, 'rb') as handle:
+    #    metric_val = pickle.load(handle)
 
     calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
     good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
@@ -370,8 +377,8 @@ def vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True,
     if print_it:
         print("GAMMA: ")
         print(my_gamma)
-        print("METRIC VALUE: ")
-        print(metric_val)
+        #print("METRIC VALUE: ")
+        #print(metric_val)
         print("True Eval:")
         print(exact_score)
         print("Approx Eval: ")
@@ -383,7 +390,7 @@ def vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True,
         print()
 
     for clus, info in lambdas_dict.items():
-        vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, 
+        vis_clus(my_gamma, clus, lambdas_dict, simple_avg, names_and_data, only_states,
              save_folder=my_vars.stateImsP, array_shape=(120,120))
 
 
@@ -792,11 +799,120 @@ def bin_data(data, bin_size, round_it=False):
     return binned
 
 
-def load_lmds_d(f_name="lambdas_d_gamma_50-000.pickle", f_dir=my_vars.picklesDataPath):
+def load_lmds_d(f_name="Best_lambdas_d_gamma_0-001.pickle", f_dir=my_vars.picklesDataPath):
     f_path = f_dir.joinpath(f_name)
     with open(f_path, 'rb') as f:
         lmds_d = pickle.load(f)
     return lmds_d
+
+
+def vis_indiv_clus_fit(lambdas_dict, only_states=False):
+    cap = 10000
+    mat_of_results = jnp.zeros(())
+    calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lambdas_dict)
+    good_indices, approx_indices, transitory_indices, true_clusters = find_useful_indices(cap=cap)
+
+    t_clus_goods = [t for i, t in enumerate(true_clusters) if i in good_indices]
+    if not only_states:
+        c_clus_goods = [t for i, t in enumerate(calc_clusters) if i in good_indices]
+    else:
+        c_clus_goods = calc_clusters
+    
+    c_clus_goods = jnp.array(c_clus_goods).tolist()
+
+    all_clusts = set(t_clus_goods)
+    all_calc_clusts = set(c_clus_goods)
+    #mat_of_results = np.zeros((len(all_clusts), len(all_calc_clusts)))
+    mat_of_results = np.zeros((20, 20))
+
+    for calc_clus in all_calc_clusts:
+        calc_relative_indices = set([i for i, t in enumerate(c_clus_goods) if t == calc_clus])
+        for t_clus in all_clusts:
+            t_relative_indices = set([i for i, t in enumerate(t_clus_goods) if t == t_clus])
+            perc_overlap = len(calc_relative_indices.intersection(t_relative_indices)) / \
+                            len(t_relative_indices)
+            mat_of_results[t_clus, calc_clus] = perc_overlap
+
+    fig, ax = plt.subplots()
+    ax.yaxis.set_ticks(jnp.arange(0,20))
+    ax.yaxis.set_ticklabels(jnp.arange(0,20)) 
+    ax.xaxis.set_ticks(jnp.arange(0,20))
+    ax.xaxis.set_ticklabels(jnp.arange(0,20)) 
+    
+    ax.set_xlabel("Predicted Cluster")
+    ax.set_ylabel("Actual Cluster")
+
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+
+    im = ax.imshow(mat_of_results, cmap='hot')
+    fig.colorbar(im, cax=cax, orientation='vertical')
+    #plt.savefig("Individual Clus Evals")
+    ax.set_title("Confusion Matrix")
+    plt.show()
+
+    # Create a DataFrame with labels and varieties as columns: df
+    df = pd.DataFrame({'Labels': t_clus_goods, 'Clusters': c_clus_goods})
+
+    # Create crosstab: ct
+    ct = pd.crosstab(df['Labels'], df['Clusters'], normalize=True)
+
+    # Display ct
+    print(ct)
+    #save_df_as_image(ct, ".")
+
+
+def save_df_as_image(df, path):
+    import matplotlib
+    import seaborn as sns
+    # Set background to white
+    norm = matplotlib.colors.Normalize(-1,1)
+    colors = [[norm(-1.0), "white"],
+            [norm( 1.0), "white"]]
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", colors)
+    # Make plot
+    plot = sns.heatmap(df, annot=True, cmap=cmap, cbar=False)
+    fig = plot.get_figure()
+    fig.savefig(path)
+
+
+def vis_diff():
+    array_shape = (120,120)
+    cap=10000
+    data_arr_path = my_vars.rawArraysF
+    noise_type = 'repl'
+    with_noise = True
+    names_and_data = load_data(data_arr_path, cap=cap, 
+                               with_noise=with_noise, noise_type=noise_type)
+
+
+    lmds_1 = load_lmds_d(f_name="Best_lambdas_d_gamma_0-001.pickle", f_dir=my_vars.picklesDataPath)
+    lmds_2 = load_lmds_d(f_name="lambdas_d_gamma_0-001.pickle", f_dir=my_vars.picklesDataPath)
+    calc_clusters, calc_lambdas, cluster_pts, cluster_lambdas = format_nice(lmds_1)
+    calc_clusters2, calc_lambdas2, cluster_pts2, cluster_lambdas2 = format_nice(lmds_2)
+
+    img = jnp.zeros(array_shape)
+    lambdas_and_indices = lmds_1[1]
+    lambdas, indices = zip(*lambdas_and_indices)
+    for i in range(len(lambdas)):
+        l = lambdas[i]
+        im_ind = indices[i]
+        im = names_and_data[im_ind][1]
+        img += l*im
+
+    lambdas_and_indices = lmds_2[1]
+    lambdas, indices = zip(*lambdas_and_indices)
+    for i in range(len(lambdas)):
+        l = lambdas[i]
+        im_ind = indices[i]
+        im = names_and_data[im_ind][1]
+        img -= l*im
+
+    plt.imshow(img, cmap='Greys_r', interpolation='nearest')
+    plt.title("Difference: Convex Combination - Simple Avg")
+    plt.colorbar()
+    plt.savefig("Difference Conv Combo vs Simp Avg")
 
 
 if __name__ == "__main__":
@@ -821,8 +937,9 @@ if __name__ == "__main__":
     noise_type='repl'
     names_and_data = load_data(data_arr_path, cap=cap, 
                                with_noise=with_noise, noise_type=noise_type)
-    vis_and_report_clustering(names_and_data, my_gamma=50.0, simple_avg=True, \
-                            load_folder=my_vars.picklesDataPath, print_it=True)
+    vis_and_report_clustering(names_and_data, my_gamma=0.001, simple_avg=False, \
+                            load_folder=my_vars.picklesDataPath, print_it=True,
+                            is_best=True)
     """
     #counts_in_states()
     #lmd_dict_vs_all_clus()
@@ -831,11 +948,13 @@ if __name__ == "__main__":
     #noise_combine_visual()
     #get_mean_vals(data_name="my_data.pkl", load_folder=my_vars.picklesDataPath)
     """
-    eval_clustering(my_gamma = 1.0, n_cs = 20, cap=10000, print_it=True, 
-                    with_noise=True, noise_type='repl', simple_avg=False, 
-                    only_states=True, is_best=True,
+    eval_clustering(my_gamma = 0.001, n_cs = 17, cap=10000, print_it=True, 
+                    with_noise=True, noise_type='repl', simple_avg=True, 
+                    only_states=False, is_best=False,
                     data_arr_path=my_vars.rawArraysF,
                     save_folder=my_vars.picklesDataPath)
+    """
+    """
     multi_eval_clus_compare(gammas=[0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,\
         0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09, \
         0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9, 1,2,3,4,5,6,7,8,9,10], 
@@ -843,5 +962,12 @@ if __name__ == "__main__":
                             n_cs_os=[],
                             only_os=False, load_prev=True)
     """
-    lamds_d = load_lmds_d()
-    graph_of_transitory_vs_lamdba(lamds_d, save=False)
+    #lamds_d = load_lmds_d()
+    #graph_of_transitory_vs_lamdba(lamds_d, save=False)
+    #vis_indiv_clus_fit(lamds_d, only_states=False)
+
+    #lamds_d = load_lmds_d(f_name="Best_lambdas_d_gamma_1-000.pickle")
+    #graph_of_transitory_vs_lamdba(lamds_d, save=False)
+    #vis_indiv_clus_fit(lamds_d, only_states=True)
+
+    vis_diff()
